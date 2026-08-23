@@ -1,0 +1,31 @@
+ID,Symptom,Topology / Devices,Show Output / Evidence,Expected Fault,OSI,Concept,Severity,Next Command,Fix
+C001,PC1 can ping gateway but cannot reach remote server,PC1 → SW1 → R1 → R2 → Remote Server,R1#show ip route → no route to 192.168.40.0/24,Missing route,L3,Routing,High,show ip route,Add route via 10.0.0.2
+C002,PC1 cannot communicate with PC2 although both use 192.168.10.x,PC1/PC2 → SW1,"show vlan brief → Fa0/1 VLAN 10, Fa0/2 VLAN 20",PC2 wrong VLAN,L2,VLAN,Medium,show vlan brief,Put PC2 port in VLAN 10
+C003,PC1 receives no valid IP address,PC1 → SW1 → R1 DHCP,show ip dhcp pool → no pool for 192.168.10.0/24,Missing DHCP pool,L3,DHCP,High,show ip dhcp pool,Create VLAN 10 DHCP pool
+C004,PC1 can ping SRV1 by IP but srv1.local does not resolve,PC1 → R1 → DNS1,nslookup srv1.local → DNS request timed out,DNS failure,L7,DNS,Medium,nslookup,Correct DNS server configuration
+C005,PC1 can ping gateway but cannot reach SRV1,PC1 VLAN 10 → R1 → SRV1 VLAN 30,show access-lists → deny from 192.168.10.0/24 to 192.168.30.0/24,ACL blocking traffic,L3/L4,ACL,High,show access-lists,Configure ACL
+C006,PC1 cannot access external network,PC1 → R1 → R2/Internet,show ip nat translations → empty; no NAT configuration,NAT missing,L3,NAT,High,show ip nat translations,Configure PAT/NAT
+C007,PC1 cannot ping its gateway,PC1 → SW1 → R1,show ip interface brief → R1 G0/0 administratively down,Interface shutdown,L1/L3,Gateway,High,show ip interface brief,no shutdown
+C008,All devices in VLAN 20 lose connectivity,PC3 → SW1,show vlan brief → VLAN 20 absent,VLAN missing,L2,VLAN,High,show vlan brief,Create VLAN 20
+C009,VLAN 30 devices work on SW1 but not SW2,SW1 ↔ SW2,show interfaces trunk → VLAN 30 not in allowed list,Trunk configuration error,L2,Trunking,High,show interfaces trunk,Allow VLAN 30
+C010,PC1 has IP but cannot reach anything outside subnet,PC1 → SW1 → R1,"PC1 gateway = 192.168.20.1, IP = 192.168.10.10/24",Wrong gateway,L3,Gateway,High,Check IP configuration,Set gateway 192.168.10.1
+C011,DHCP works for VLAN 10 but not VLAN 20,VLAN 10/20 → R1 → DHCP,VLAN 20 interface has no ip helper-address,Missing DHCP relay,L3,DHCP,High,show running-config,Add ip helper-address
+C012,Some new PCs cannot obtain DHCP addresses,Multiple clients → R1,show ip dhcp pool → all addresses leased,DHCP pool exhausted,L3,DHCP,Medium,show ip dhcp pool,Expand poo
+C013,PC1 and another device intermittently lose connectivity,PC1 → SW1,show ip arp → same IP associated with different MACs,Duplicate IP,L2/L3,IP Addressing,High,show ip arp,Give device unique IP
+C014,PC1 cannot reach remote server,PC1 → R1 → R2 → Remote LAN,show ip route → 192.168.40.0/24 absent,Missing static route,L3,Routing,High,show ip route,Add static route
+C015,Remote network route exists but traffic fails,R1 → R2,show running-config → route uses wrong next hop 10.0.0.9,Wrong next hop,L3,Routing,High,how ip route,Change next hop to 10.0.0.2
+C016,R1 and R2 form OSPF neighbor but remote network is absent,R1 ↔ R2,show ip ospf neighbor → neighbor established; route absent,Network not advertised,L3,OSPF,High,show ip ospf neighbor,Advertise remote network
+C017,R1 and R2 do not become OSPF neighbors,R1 ↔ R2,show ip ospf neighbor → no neighbor,OSPF area mismatch,L3,OSPF,High,show ip ospf neighbor,Match OSPF areas
+C018,PC1 can access SRV1 by HTTP but ping fails,PC1 → R1 → SRV1,"show access-lists → ICMP denied, TCP/80 permitted",ICMP blocked,L3/L4,ACL,Medium,show access-lists,Permit ICMP if required
+C019,PC1 can ping SRV1 but website doesn't open,PC1 → R1 → SRV1,ACL denies TCP port 80,HTTP blocked,L4,ACL,High,show access-lists,Permit TCP/80
+C020,ACL appears configured but doesn't block expected traffic,R1 interface ACL,show running-config → ACL applied outbound instead of inbound,Wrong ACL direction,L3/L4,ACL,High,show running-config,Apply ACL correct direction
+C021,NAT configured but PC1 still cannot access external network,PC1 → R1 → R2,show ip nat translations empty; NAT ACL doesn't match 192.168.10.0/24,Wrong NAT ACL,L3,NAT,High,show access-lists,Correct NAT ACL
+C022,VLAN 10 accesses Internet but VLAN 20 cannot,VLAN 10/20 → R1,NAT ACL permits VLAN 10 but not 192.168.20.0/24,Incomplete NAT ACL,L3,NAT,High,show access-lists,Add VLAN 20 subnet
+C023,External user cannot access SRV1,R2 → R1 → SRV1,show ip nat translations → no static translation for SRV1,Missing static NAT,L3/L4,NAT,High,show ip nat translations,Configure static NAT
+C024,Wireless client connects but cannot access SRV1,AP1 → SW1 → R1 → SRV1,show vlan brief → AP port assigned to VLAN 20 instead of wireless VLAN,Wrong wireless VLAN,L2/L3,Wireless,High,show vlan brief,Correct AP VLAN
+C025,Guest wireless client can access internal SRV1,AP1 → Guest VLAN → R1 → SRV1,show access-lists → no guest-to-LAN deny rule,Guest isolation failure,L3/L4,Wireless/ACL,High,show access-lists,Add isolation ACL
+C026,Wireless client connects but receives no IP,AP1 → SW1 → R1 DHCP,show ip dhcp binding → no lease for wireless subnet,Wireless DHCP failure,L2/L3,Wireless/DHCP,High,show ip dhcp binding,Fix DHCP/relay
+C027,R1 interface appears connected but cannot forward traffic,R1 → SW1,show ip interface brief → G0/0 up/down,Data-link/interface problem,L1/L2,Interface,High,show interfaces,Fix interface/link
+C028,PC1 has valid IP but cannot reach remote network,PC1 → SW1 → R1,ipconfig → default gateway field empty,Missing gateway,L3,Gateway,High,Check IP configuration,Set 192.168.10.1
+C029,SRV1 works locally but remote PC cannot reach it,SRV1 → SW1 → R1,"SRV1 = 192.168.30.10/24, gateway = 192.168.40.1",Server gateway mismatch,L3,Gateway,High,Check server config,Set gateway 192.168.30.1
+C030,DNS name fails but IP connectivity works,PC1 → R1 → DNS1/SRV1,nslookup srv1.local → timeout; ping 192.168.30.10 succeeds,DNS server unreachable,L7,DNS,Medium,nslookup,Correct DNS configuration
