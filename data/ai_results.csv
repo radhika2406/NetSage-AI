@@ -1,0 +1,1001 @@
+﻿ID,AI_Diagnosis,Human_Review
+C001,"**Root Cause:**  
+R1 lacks a routing entry for the remote network 192.168.40.0/24, preventing traffic from PC1 from reaching the Remote Server.
+
+**Confidence:** 90%
+
+**OSI Layer:** Layer 3
+
+**Concept:** Routing
+
+**Evidence:**  
+- `R1#show ip route → no route to 192.168.40.0/24` – explicitly shows that R1 does not have a route to the remote network.
+
+**Next Command:**  
+```text
+R1#show ip route 192.168.40.0
+```
+
+**Why This Command:**  
+Running a targeted route lookup will confirm whether the route is truly missing or if there is a mis‑configured entry that is not being matched. It also shows the current routing table entries for that prefix, helping to determine the correct next hop.
+
+**Fix Steps:**  
+1. Configure a static route (or enable a dynamic routing protocol) on R1 to reach the remote network. Example static route:  
+   ```text
+   R1(config)#ip route 192.168.40.0 255.255.255.0 10.0.0.2
+   ```  
+   (Assuming R2’s IP on the inter‑router link is 10.0.0.2.)  
+2. Verify connectivity from PC1 to the Remote Server:  
+   ```text
+   PC1>ping 192.168.40.10
+   ```  
+   or use `traceroute` to confirm the path.
+
+**Verification:**  
+After adding the route, `R1#show ip route 192.168.40.0` should display the new entry, and PC1 should successfully ping the Remote Server. A traceroute from PC1 should show hops through R1 and R2 to the remote network.
+
+**Human Review:**  
+Pending",
+C002,"Root Cause:  
+PC2 is connected to the wrong VLAN – its switch port (Fa0/2) is assigned to VLAN 20 instead of VLAN 10, preventing communication with PC1 on VLAN 10.
+
+Confidence: 95%
+
+OSI Layer: Layer 2
+
+Concept: VLAN
+
+Evidence:  
+- `show vlan brief` shows Fa0/1 in VLAN 10 and Fa0/2 in VLAN 20.  
+- Both PCs are on the 192.168.10.x subnet, which is mapped to VLAN 10.  
+- The rule checker confirms the mismatch: “PC2 switch port is assigned to VLAN 20 instead of VLAN 10.”
+
+Next Command:  
+```text
+show interface fa0/2 switchport
+```
+
+Why This Command:  
+It displays the current VLAN assignment, access/trunk mode, and any native VLAN settings for the port, confirming that Fa0/2 is indeed on VLAN 20 and not VLAN 10.
+
+Fix Steps:  
+1. Enter global configuration mode on SW1 and set the port to the correct VLAN:  
+   ```text
+   configure terminal
+   interface fa0/2
+   switchport mode access
+   switchport access vlan 10
+   exit
+   ```  
+2. Verify the change and test connectivity:  
+   ```text
+   show interface fa0/2 switchport
+   ping 192.168.10.10
+   ```
+
+Verification:  
+After reassigning Fa0/2 to VLAN 10, PC2 should be able to ping PC1 (192.168.10.10). A successful ping confirms that both PCs are now on the same VLAN and can communicate.  
+
+Human Review: Pending",
+C003,"**Root Cause:**  
+The DHCP pool for the 192.168.10.0/24 network is not configured on R1, so PC1 cannot obtain an IP address.
+
+**Confidence:** 95%
+
+**OSI Layer:** Layer 3
+
+**Concept:** DHCP
+
+**Evidence:**  
+- `show ip dhcp pool` output: *“no pool for 192.168.10.0/24”* – indicates that R1 has no DHCP scope for VLAN 10.
+
+**Next Command:**  
+```text
+show ip interface brief
+```
+
+**Why This Command:**  
+It will confirm that R1’s VLAN 10 interface (192.168.10.1) is up and correctly configured, ensuring that the lack of a DHCP pool is the sole reason PC1 is not receiving an address.
+
+**Fix Steps:**  
+1. On R1, create the DHCP pool:  
+   ```text
+   ip dhcp pool VLAN10
+    network 192.168.10.0 255.255.255.0
+    default-router 192.168.10.1
+    dns-server 192.168.30.20
+   ```  
+2. Verify the pool and client binding:  
+   ```text
+   show ip dhcp pool
+   show ip dhcp binding
+   ```
+
+**Verification:**  
+After configuring the pool, reboot or release/renew DHCP on PC1. Then run `ipconfig /all` (Windows) or `ifconfig`/`ip addr` (Linux) on PC1 to confirm it receives a valid IP address in the 192.168.10.0/24 range.
+
+**Human Review:**  
+Pending",
+C004,"**Root Cause:**  
+The DNS server (DNS1 at 192.168.30.20) is not responding to DNS queries from PC1, causing the nslookup to time out.
+
+**Confidence:** 80%
+
+**OSI Layer:** Layer 7 (Application)
+
+**Concept:** DNS
+
+**Evidence:**  
+- `nslookup srv1.local → DNS request timed out` – indicates that the DNS query did not receive a response.  
+- PC1 can ping SRV1 by IP, confirming that routing between VLAN 10 and VLAN 30 is functional, so the issue is specific to DNS service or its accessibility.
+
+**Next Command:**  
+```text
+ping 192.168.30.20
+```
+
+**Why This Command:**  
+Pinging the DNS server will verify whether PC1 can reach DNS1 at the network layer. If the ping fails, the problem lies in connectivity (routing, ACL, or interface). If the ping succeeds, the DNS service itself is likely down or misconfigured.
+
+**Fix Steps:**  
+1. **On DNS1** – Verify that the DNS service is running and listening on port 53.  
+   ```text
+   show running-config | include ip name-server
+   show ip interface brief
+   show ip dns
+   ```  
+   If the service is stopped, restart it (`service dns restart` or equivalent).  
+2. **On DNS1** – Ensure the zone file contains an A record for `srv1.local` pointing to 192.168.30.10.  
+   ```text
+   show ip dns database srv1.local
+   ```  
+   If missing, add the record and reload the DNS configuration.
+
+**Verification:**  
+From PC1 run `nslookup srv1.local`. The query should now return the IP address 192.168.30.10. Additionally, `dig srv1.local @192.168.30.20` can confirm that the DNS server is responding correctly.
+
+**Human Review:**  
+Pending",
+C005,"Root Cause:  
+ACL on R1 is blocking traffic from VLAN 10 (192.168.10.0/24) to VLAN 30 (192.168.30.0/24), preventing PC1 from reaching SRV1.
+
+Confidence: 95%
+
+OSI Layer: Layer 3 (IP)
+
+Concept: ACL (Access‑Control List)
+
+Evidence:  
+- `show access-lists` output shows a deny entry: `deny from 192.168.10.0/24 to 192.168.30.0/24`.  
+- PC1 can ping its gateway (192.168.10.1) but cannot reach SRV1 (192.168.30.10), indicating the traffic is being blocked after routing.
+
+Next Command:  
+```text
+show ip interface [interface connecting R1 to SRV1]
+```
+*(Replace `[interface]` with the actual interface name, e.g., `GigabitEthernet0/1`.)*
+
+Why This Command:  
+This command displays the interface configuration, including any `ip access-group` statements applied inbound or outbound. It will confirm that the ACL denying VLAN 10 → VLAN 30 traffic is indeed attached to the interface that carries the traffic between R1 and SRV1.
+
+Fix Steps:  
+1. Remove or modify the deny statement in the ACL (e.g., `no deny 192.168.10.0 0.0.0.255 192.168.30.0 0.0.0.255` or add a permit before the deny).  
+2. Apply the updated ACL to the correct interface (e.g., `ip access-group <ACL‑name> in` on the interface connecting to SRV1).
+
+Verification:  
+- From PC1, run `ping 192.168.30.10` again; it should now succeed.  
+- Run `show access-lists` to confirm the ACL no longer contains the deny entry or that a permit entry precedes it.  
+
+Human Review: Pending",
+C006,"**Root Cause:**  
+NAT is not configured on R1 for traffic from the internal VLAN 10 network to the external network, so packets from PC1 are not translated and cannot reach the Internet.
+
+**Confidence:** 90%
+
+**OSI Layer:** Layer 3 (Network)
+
+**Concept:** NAT
+
+**Evidence:**  
+- `show ip nat translations` returned empty, indicating no active NAT translations.  
+- The deterministic rule checker flagged `NAT_MISSING` as a failure, confirming that no NAT configuration is present.
+
+**Next Command:**  
+```text
+show running-config | include nat
+```
+
+**Why This Command:**  
+This command will display any NAT configuration present on the router. If nothing appears, it confirms that NAT has not been configured; if NAT statements exist, it will help identify misconfigurations.
+
+**Fix Steps:**  
+1. Define an access list for the internal network:  
+   ```text
+   access-list 1 permit 192.168.10.0 0.0.0.255
+   ```  
+2. Configure NAT overload on the outside interface (e.g., `GigabitEthernet0/1`):  
+   ```text
+   interface GigabitEthernet0/1
+    ip nat outside
+   interface GigabitEthernet0/0
+    ip nat inside
+   ip nat inside source list 1 interface GigabitEthernet0/1 overload
+   ```
+
+**Verification:**  
+- From PC1, ping an external IP (e.g., `ping 8.8.8.8`).  
+- On R1, run `show ip nat translations` to see active translations.  
+- Confirm that the ping succeeds and that NAT translations appear in the output.
+
+**Human Review:**  
+Pending",
+C007,"**Root Cause:**  
+The interface G0/0 on R1 is administratively shut, preventing the link between SW1 and R1 from functioning.
+
+**Confidence:** 95%
+
+**OSI Layer:** Layer 1 / Layer 2 (physical link / interface status)
+
+**Concept:** Interface (administrative shutdown)
+
+**Evidence:**  
+- `show ip interface brief` on R1 lists `G0/0` as *administratively down*.
+
+**Next Command:**  
+```text
+show interface g0/0
+```
+
+**Why This Command:**  
+It will display the detailed operational status, error counters, and any shutdown reason, confirming that the interface is indeed disabled and showing whether the link is physically connected.
+
+**Fix Steps:**  
+1. On R1, enter configuration mode and enable the interface:  
+   ```text
+   R1# configure terminal  
+   R1(config)# interface g0/0  
+   R1(config-if)# no shutdown  
+   R1(config-if)# exit  
+   R1(config)# exit  
+   ```
+2. Verify the cable and port on SW1 are functioning; if necessary, replace the cable or check the SW1 port status.
+
+**Verification:**  
+- Run `show ip interface brief` again to confirm G0/0 is *up* and *up*.  
+- From PC1, ping the gateway (192.168.10.1) and verify successful replies.
+
+**Human Review:**  
+Pending",
+C008,"Root Cause:  
+VLAN 20 is not configured on SW1, so ports in that VLAN cannot forward traffic.
+
+Confidence:  
+90%
+
+OSI Layer:  
+Layer 2
+
+Concept:  
+VLAN
+
+Evidence:  
+- `show vlan brief` output shows “VLAN 20 absent”  
+- Rule checker reports `MISSING_VLAN` for VLAN 20
+
+Next Command:  
+```text
+show vlan id 20
+```
+
+Why This Command:  
+It will confirm whether VLAN 20 exists on the switch and display its status; if the VLAN is still missing, the root cause is validated.
+
+Fix Steps:  
+1. Create VLAN 20 on SW1:  
+   ```text
+   configure terminal  
+   vlan 20  
+   name ""VLAN20""  
+   exit  
+   ```  
+2. Assign the relevant switch ports to VLAN 20 and ensure they are in access mode:  
+   ```text
+   interface range <port-range>  
+   switchport mode access  
+   switchport access vlan 20  
+   exit  
+   ```
+
+Verification:  
+- Run `show vlan brief` to see VLAN 20 listed with the correct ports.  
+- From a PC in VLAN 20, ping another device in the same VLAN or the default gateway (192.168.20.1) to confirm connectivity.  
+
+Human Review:  
+Pending",
+C009,"Root Cause:  
+VLAN 30 is not allowed on the trunk link between SW1 and SW2, so traffic for VLAN 30 cannot traverse the inter‑switch link.
+
+Confidence: 95%
+
+OSI Layer: Layer 2
+
+Concept: VLAN (trunk configuration)
+
+Evidence:  
+- `show interfaces trunk` output indicates “VLAN 30 not in allowed list”, meaning the trunk does not carry VLAN 30 frames.
+
+Next Command:  
+```text
+show interfaces trunk
+```
+(Execute on SW2 to confirm that VLAN 30",
+C010,"Root Cause:  
+PC1 is configured with a default gateway (192.168.20.1) that is outside its own subnet (192.168.10.0/24), preventing any traffic from leaving the local network.
+
+Confidence: 95%
+
+OSI Layer: Layer 3
+
+Concept: Gateway
+
+Evidence:  
+- PC1’s IP address is 192.168.10.10/24, indicating it belongs to VLAN 10 (192.168.10.0/24).  
+- The default gateway set on PC1 is 192.168.20.1, which is the gateway for VLAN 20 (192.168.20.0/24).  
+- The deterministic rule checker flagged a GATEWAY_MISMATCH, confirming the gateway is outside the host’s network.
+
+Next Command:  
+```text
+ping 192.168.20.1
+```
+
+Why This Command:  
+Pinging the configured gateway will immediately show whether the gateway is reachable. Since the gateway is on a different subnet, the ping should fail, confirming that the gateway is unreachable and that the misconfiguration is the cause of the connectivity issue.
+
+Fix Steps:  
+1. On PC1, correct the default gateway to the proper address for VLAN 10:  
+   - Windows: `netsh interface ip set address ""Local Area Connection"" static 192.168.10.10 255.255.255.0 192.168.10.1`  
+   - Linux/macOS: `sudo ifconfig eth0 192.168.10.10 netmask 255.255.255.0 up && sudo route add default gw 192.168.10.1 eth0`  
+2. Verify connectivity by pinging an external host (e.g., `ping 8.8.8.8`) and ensuring the traffic routes through R1.
+
+Verification:  
+After updating the gateway, run `ping 8.8.8.8` from PC1. Successful replies indicate that traffic is now leaving the local subnet and reaching external networks. Additionally, `traceroute 8.8.8.8` should show the first hop as 192.168.10.1 (R1).
+
+Human Review: Pending",
+C011,"**Root Cause:**  
+The VLAN 20 interface on R1 lacks an `ip helper-address` pointing to the DHCP server, so DHCP broadcast packets from VLAN 20 are not forwarded to the DHCP server.
+
+**Confidence:** 95%
+
+**OSI Layer:** Layer 3 (Network)
+
+**Concept:** DHCP relay (ip helper-address)
+
+**Evidence:**  
+- The show‑command output explicitly states that the VLAN 20 interface has no `ip helper-address`.  
+- The deterministic rule checker reports a failure for `DHCP_RELAY`, confirming the missing helper address.
+
+**Next Command:**  
+```text
+show run interface vlan20
+```
+
+**Why This Command:**  
+It displays the current configuration of the VLAN 20 interface, allowing us to verify that no `ip helper-address` is configured and to confirm the interface’s IP address and status.
+
+**Fix Steps:**  
+1. Enter global configuration mode and configure the helper address on VLAN 20:  
+   ```text
+   configure terminal
+   interface vlan20
+   ip helper-address 192.168.30.10   ! DHCP server address
+   exit
+   ```
+2. Save the configuration:  
+   ```text
+   write memory
+   ```
+
+**Verification:**  
+- From a host on VLAN 20, run `ipconfig /renew` (Windows) or `dhclient` (Linux) and confirm it receives an IP lease.  
+- On R1, run `show run interface vlan20` again to see the newly added `ip helper-address`.  
+- Optionally, use `show ip dhcp binding` to verify that the VLAN 20 client’s lease appears in the DHCP binding table.
+
+**Human Review:**  
+Pending",
+C012,"Root Cause:  
+The DHCP pool on R1 is exhausted – all available addresses have been leased, so new PCs cannot receive an IP address.
+
+Confidence: 90%
+
+OSI Layer: Layer 3
+
+Concept: DHCP
+
+Evidence:  
+- `show ip dhcp pool` output indicates that all addresses in the pool are currently leased.  
+- The rule checker reports `DHCP_POOL_EXHAUSTED` with status FAIL, confirming no free addresses remain.
+
+Next Command:  
+```text
+show ip dhcp binding
+```
+
+Why This Command:  
+`show ip dhcp binding` lists every active lease, allowing you to verify that the number of bindings equals the pool size and to identify any stale or unused leases that could be released.
+
+Fix Steps:  
+1. **Increase the DHCP pool size** – extend the address range in the DHCP pool configuration on R1 to provide additional addresses.  
+2. **Release or delete stale leases** – use `clear ip dhcp binding <ip-address>` or `clear ip dhcp binding` to free up addresses that are no longer in use.
+
+Verification:  
+Run `show ip dhcp pool` again to confirm that the number of available addresses is greater than zero. Then connect a new PC and verify it receives an IP address from the expanded pool.  
+
+Human Review: Pending",
+C013,"**Root Cause:**  
+Duplicate IP address conflict on the network (same IP assigned to two different devices, causing ARP table entries to alternate between two MAC addresses).
+
+**Confidence:** 90%
+
+**OSI Layer:** Layer 2 (ARP operates at the Data Link layer)
+
+**Concept:** IP address conflict / ARP
+
+**Evidence:**  
+- `show ip arp` shows the same IP address associated with multiple MAC addresses.  
+- The rule‑checker flag “DUPLICATE_IP” confirms that the IP is mapped to more than one MAC.
+
+**Next Command:**  
+```text
+show mac address-table | include <MAC-address-of-duplicate-IP>
+```
+
+**Why This Command:**  
+The MAC address table on the switch will reveal which switch port each conflicting MAC is learning on, allowing us to identify the physical device that is incorrectly using the duplicate IP. This confirms the source of the conflict.
+
+**Fix Steps:**  
+1. Identify the device that is incorrectly configured (via the MAC address table).  
+2. Re‑configure that device with a unique IP address or obtain a correct address via DHCP.  
+3. Clear the ARP cache on PC1 (e.g., `arp -d <duplicate-IP>` or `clear arp` on the router) so that it learns the correct MAC.
+
+**Verification:**  
+- From PC1, ping the duplicate IP again; the ARP table should now show a single MAC address.  
+- Verify that the other device can also reach the network without intermittent drops.  
+- Confirm the MAC address table shows only one entry for the IP’s MAC on a single port.
+
+**Human Review:** Pending",
+C014,No diagnosis returned by Groq.,
+C015,"**Root Cause:**  
+Static route on R1 for the remote network uses an incorrect next‑hop address (10.0.0.9) that is not reachable from R1.
+
+**Confidence:** 95%
+
+**OSI Layer:** Layer 3 (Routing)
+
+**Concept:** Routing – static route misconfiguration
+
+**Evidence:**  
+- `show running-config` displays a static route to the remote network that points to next hop `10.0.0.9`.  
+- The R1‑R2 link is defined as `10.0.0.0/30`, where the valid next hop should be the opposite end of the link (`10.0.0.8`), not `10.0.0.9`.
+
+**Next Command:**  
+```text
+ping 10.0.0.9
+```
+
+**Why This Command:**  
+Pinging the advertised next hop will confirm whether it is reachable. A failure to receive replies indicates that the next hop is unreachable, validating that the static route is misconfigured.
+
+**Fix Steps:**  
+1. Log into R1 and enter configuration mode.  
+2. Remove the incorrect static route:  
+   ```text
+   no ip route <remote-network> <mask> 10.0.0.9
+   ```  
+3. Add the correct static route pointing to the actual R2 interface:  
+   ```text
+   ip route <remote-network> <mask> 10.0.0.8
+   ```  
+4. Save the configuration (`write memory` or `copy running-config startup-config`).
+
+**Verification:**  
+- From R1, `show ip route <remote-network>` should now list the route with next hop `10.0.0.8`.  
+- From a host in VLAN 10 (e.g., PC1), `ping 192.168.40.10` should succeed, confirming traffic can traverse the R1‑R2 link to the remote network.
+
+**Human Review:** Pending",
+C016,"**Root Cause:**  
+The remote network 192.168.40.0/24 is not being advertised into OSPF by R2 (or the interface carrying it is not included in the OSPF process), so R1 has no OSPF‑derived route to that network.
+
+**Confidence:** 90%
+
+**OSI Layer:** Layer 3 (Routing)
+
+**Concept:** OSPF (Routing)
+
+**Evidence:**  
+- `show ip ospf neighbor` shows a neighbor is established but no route is present.  
+- Deterministic Rule Checker reports **MISSING_ROUTE** for 192.168.40.0/24, indicating the route is absent from the routing table.
+
+**Next Command:**
+```text
+show ip route 192.168.40.0
+```
+
+**Why This Command:**  
+It will confirm whether the route to the remote network exists in R1’s routing table. If the route is still missing, it proves that the OSPF process is not receiving the network advertisement from R2.
+
+**Fix Steps:**
+1. On R2, verify that the interface connected to the remote network is included in the OSPF process:  
+   ```text
+   show ip ospf interface
+   ```  
+   If it is not, add the interface to OSPF or enable OSPF on it.  
+2. Add a network statement for 192.168.40.0/24 to R2’s OSPF configuration (or correct any area mismatch):  
+   ```text
+   router ospf <process-id>
+     network 192.168.40.0 0.0.0.255 area <area-id>
+   ```
+
+**Verification:**  
+After applying the configuration, run `show ip route 192.168.40.0` on R1. The output should now display a route to 192.168.40.0/24 via the OSPF neighbor (R2). Additionally, `show ip ospf database` on R1 should list the LSAs for the remote network, confirming that the advertisement is being received.
+
+**Human Review:** Pending",
+C017,"**Root Cause:**  
+OSPF is not enabled on the interface(s) that connect R1 and R2 (the interface(s) are either missing an OSPF configuration or the OSPF process is not running on the router).
+
+**Confidence:** 70%
+
+**OSI Layer:** Layer 3 (Routing)
+
+**Concept:** OSPF (Routing)
+
+**Evidence:**  
+- `show ip ospf neighbor` returns no neighbors, indicating that OSPF has not established adjacency on the link between R1 and R2.  
+- No other evidence (e.g., interface status, OSPF process ID, area mismatch) is provided, so the most common cause is that OSPF is not configured on the connecting interface(s).
+
+**Next Command:**  
+```text
+show ip ospf interface
+```
+
+**Why This Command:**  
+`show ip ospf interface` lists all interfaces that are participating in OSPF, along with their state (up/down, DR/BDR, etc.). If the interface connecting R1 and R2 is not listed or shows “not configured”, it confirms that OSPF is not enabled on that interface, which explains the lack of neighbors.
+
+**Fix Steps:**  
+1. On each router, enter configuration mode and enable OSPF on the interface that connects to the other router.  
+   ```text
+   configure terminal
+   interface <interface-name>
+   ip ospf 1 area 0
+   exit
+   ```  
+   (Replace `<interface-name>` with the actual interface, e.g., `GigabitEthernet0/0`.)  
+2. Verify that the OSPF process is running and that the interface is now part of OSPF:  
+   ```text
+   show ip ospf interface
+   ```
+
+**Verification:**  
+Run `show ip ospf neighbor` again. It should now list the neighboring router (e.g., `R2` on R1 and `R1` on R2) with a state of `FULL`. Additionally, `show ip ospf interface` should display the interface as `up` and participating in OSPF.
+
+**Human Review:**  
+Pending",
+C018,No diagnosis returned by Groq.,
+C019,"**Root Cause:**  
+ACL on R1 is denying TCP port 80 traffic between PC1 (192.168.10.10) and SRV1 (192.168.30.10), preventing HTTP access even though ICMP ping succeeds.
+
+**Confidence:** 90%
+
+**OSI Layer:** Layer 4 (Transport)
+
+**Concept:** Access‑Control List (ACL)
+
+**Evidence:**  
+- Show command output explicitly states “ACL denies TCP port 80”.  
+- Deterministic Rule Checker confirms ACL blocks HTTP traffic on TCP 80.
+
+**Next Command:**  
+```text
+show ip access-lists
+```
+
+**Why This Command:**  
+It displays the ACL entries applied on R1, allowing us to verify that the deny rule for TCP 80 is present and to identify the exact ACL and interface it is applied to.
+
+**Fix Steps:**  
+1. Edit the ACL on R1 to permit TCP 80 traffic from PC1 to SRV1 (or remove the deny entry).  
+2. Apply the updated ACL to the relevant interface(s).  
+3. Save the configuration.
+
+**Verification:**  
+- From PC1, run `curl http://192.168.30.10` or open a browser to SRV1’s web page; the site should load.  
+- Re‑run `show ip access-lists` to confirm the deny rule is no longer present or is overridden by a permit.
+
+**Human Review:**  
+Pending",
+C020,"**Root Cause:**  
+The ACL is applied to the interface in the outbound direction instead of inbound, so traffic that should be blocked is allowed to pass.
+
+**Confidence:** 95%
+
+**OSI Layer:** Layer 3 (IP layer)
+
+**Concept:** ACL (Access Control List)
+
+**Evidence:**  
+- The `show running-config` output shows the ACL applied with the `out` keyword on the interface, indicating outbound direction.  
+- The deterministic rule checker flagged `ACL_DIRECTION` as FAIL, confirming the ACL is in the wrong direction.
+
+**Next Command:**  
+```text
+show ip interface [interface] access-group
+```
+
+**Why This Command:**  
+It displays the ACLs currently applied to the specified interface and their direction (in/out). Running this will confirm that the ACL is indeed applied outbound and not inbound, validating the root‑cause hypothesis.
+
+**Fix Steps:**  
+1. Enter the interface configuration mode and remove the outbound ACL:  
+   ```text
+   interface [interface]
+   no ip access-group [ACL_NAME] out
+   ```  
+2. Apply the ACL in the inbound direction:  
+   ```text
+   interface [interface]
+   ip access-group [ACL_NAME] in
+   ```
+
+**Verification:**  
+From a host that should be blocked, attempt to reach the destination (e.g., `ping` or `telnet`). The traffic should now be denied, and the ACL counters should increment for the denied packets. Additionally, re‑run `show ip interface [interface] access-group` to confirm the ACL is listed with the `in` keyword.",
+C021,"**Root Cause:**  
+The NAT ACL used on R1 does not include the internal network 192.168.10.0/24, so no packets from PC1 are translated and forwarded to the external network.
+
+**Confidence:** 90%
+
+**OSI Layer:** Layer 3 (Network)
+
+**Concept:** NAT / ACL
+
+**Evidence:**  
+- `show ip nat translations` shows an empty table, indicating no NAT translations are occurring.  
+- The rule‑checker states “NAT ACL doesn't match 192.168.10.0/24”, confirming that the ACL applied to the NAT configuration does not permit traffic from PC1’s subnet.
+
+**Next Command:**  
+```text
+show access-lists <acl-name>
+```
+
+**Why This Command:**  
+It displays the exact entries in the ACL referenced by the NAT configuration, allowing you to verify whether the 192.168.10.0/24 network is actually permitted. If the ACL lacks this network, it explains why NAT translations are absent.
+
+**Fix Steps:**  
+1. Edit the ACL referenced by the NAT rule to include the internal network, e.g.:  
+   ```text
+   access-list <acl-name> permit ip 192.168.10.0 0.0.0.255 any
+   ```  
+2. Apply the updated ACL to the NAT inside source list (if not already applied):  
+   ```text
+   ip nat inside source list <acl-name> interface <outside-interface> overload
+   ```
+
+**Verification:**  
+- From PC1, ping an external IP (e.g., 8.8.8.8).  
+- On R1, run `show ip nat translations` to confirm that a translation entry appears for PC1’s traffic.  
+- Ensure that the ping succeeds and that the NAT table shows the translated address.
+
+**Human Review:** Pending",
+C022,"**Root Cause:**  
+The NAT access‑list applied to the inside interface does not permit traffic from VLAN 20 (192.168.20.0/24), so packets from that subnet are not translated and cannot reach the Internet.
+
+**Confidence:** 90%
+
+**OSI Layer:** Layer 3 (Network)
+
+**Concept:** NAT / ACL
+
+**Evidence:**  
+- The show command output explicitly states: *“NAT ACL permits VLAN 10 but not 192.168.20.0/24.”*  
+- This indicates that the ACL used for NAT inside source translation lacks an entry for the VLAN 20 subnet.
+
+**Next Command:**  
+```text
+show access-lists
+```
+
+**Why This Command:**  
+`show access-lists` will display the full contents of the ACL(s) referenced by the NAT configuration, allowing us to verify that the ACL indeed excludes the 192.168.20.0/24 network and to identify the ACL name that needs to be modified.
+
+**Fix Steps:**  
+1. Add an ACL entry to permit the VLAN 20 subnet (e.g., `permit ip 192.168.20.0 0.0.0.255 any`).  
+2. Apply the updated ACL to the NAT inside source list (or modify the existing ACL used by NAT).  
+3. Reload or re‑apply the NAT configuration if necessary.
+
+**Verification:**  
+- From a host in VLAN 20, ping an external IP (e.g., `ping 8.8.8.8`).  
+- On R1, run `show ip nat translations` to confirm that translations for 192.168.20.x addresses appear.  
+- Ensure that the NAT statistics show increased translation counts for the VLAN 20 subnet.
+
+**Human Review:**  
+Pending",
+C023,"Root Cause:  
+Missing static NAT translation for SRV1 on R1 – the router has no configured mapping that allows traffic from the external network to reach the internal server.
+
+Confidence: 90%
+
+OSI Layer: Layer 3
+
+Concept: NAT
+
+Evidence:  
+- `show ip nat translations` reports “no static translation for SRV1”.  
+- Deterministic Rule Checker shows **STATIC_NAT** status FAIL, explicitly stating that a static NAT entry for SRV1 is missing.
+
+Next Command:  
+```text
+show ip nat inside source static
+```
+
+Why This Command:  
+This command lists all static NAT entries configured on the router. It will confirm whether SRV1 is indeed absent from the static NAT table and identify the public IP that should be mapped to it.
+
+Fix Steps:  
+1. Configure a static NAT mapping on R1 for SRV1, e.g.:  
+   ```text
+   ip nat inside source static 192.168.30.10 203.0.113.10
+   ```  
+   (Replace `203.0.113.10` with the desired public IP.)  
+2. Verify the mapping appears in `show ip nat inside source static` and that the translation shows up in `show ip nat translations`. Test connectivity from the external network to the public IP.
+
+Verification:  
+- From an external host, ping or connect to the public IP assigned to SRV1.  
+- Run `show ip nat translations` on R1 to confirm the translation is active.  
+- Ensure the service on SRV1 is reachable (e.g., HTTP, SSH) from the external network.
+
+Human Review: Pending",
+C024,"Root Cause:  
+The access‑point port on SW1 is configured to VLAN 20 instead of the intended wireless VLAN (e.g., VLAN 10). This mis‑assignment places wireless clients on the wrong VLAN, preventing them from reaching SRV1 in VLAN 30.
+
+Confidence: 90%
+
+OSI Layer: Layer 2
+
+Concept: VLAN
+
+Evidence:  
+- `show vlan brief` shows the AP port assigned to VLAN 20, not the wireless VLAN.
+
+Next Command:  
+```text
+show interface <AP‑port> switchport
+```
+(Replace `<AP‑port>` with the actual interface name on SW1.)
+
+Why This Command:  
+It displays the current access/trunk VLAN configuration for the specific port, confirming whether the port is indeed on VLAN 20 and whether it needs to be changed to the correct wireless VLAN.
+
+Fix Steps:  
+1. Reconfigure the port to the correct wireless VLAN:  
+   ```text
+   configure terminal
+   interface <AP‑port>
+   switchport mode access
+   switchport access vlan <wireless‑VLAN>
+   exit
+   exit
+   ```
+2. Verify that the port now shows the correct VLAN and that wireless clients can ping SRV1.
+
+Verification:  
+- From a wireless client, ping 192.168.30.10 (SRV1).  
+- On SW1, run `show vlan brief` and `show interface <AP‑port> switchport` to confirm the port is now on the correct VLAN.  
+- On R1, ensure the VLAN interface for the wireless VLAN is up (`show ip interface brief`).
+
+Human Review: Pending",
+C025,"**Root Cause:**  
+Missing or incorrectly applied ACL that should isolate the Guest VLAN from the internal LAN, allowing guest traffic to reach SRV1.
+
+**Confidence:** 90%
+
+**OSI Layer:** Layer 3 (IP routing/ACL)
+
+**Concept:** ACL (Access Control List)
+
+**Evidence:**  
+- `show access-lists` output shows no guest‑to‑LAN deny rule.  
+- Deterministic Rule Checker reports “Guest-to-LAN isolation ACL is missing.”  
+- Symptom: Guest wireless client can reach internal SRV1, indicating traffic is being forwarded across the VLAN boundary.
+
+**Next Command:**  
+```text
+show run interface Vlan10
+```
+*(Replace Vlan10 with the actual Guest VLAN interface number.)*
+
+**Why This Command:**  
+This command displays the running configuration of the Guest VLAN interface, allowing us to verify whether an ACL is applied to that interface (e.g., `ip access-group GUEST-TO-LAN in`). If no ACL is present, it confirms the root cause; if an ACL is present but misconfigured, it will guide further troubleshooting.
+
+**Fix Steps:**  
+1. Create an ACL that denies traffic from the Guest VLAN to the internal LAN subnets and permits other traffic.  
+   ```text
+   ip access-list extended GUEST-TO-LAN
+     deny   ip 192.168.10.0 0.0.0.255 192.168.20.0 0.0.0.255
+     deny   ip 192.168.10.0 0.0.0.255 192.168.30.0 0.0.0.255
+     deny   ip 192.168.10.0 0.0.0.255 192.168.40.0 0.0.0.255
+     permit ip any any
+   ```
+2. Apply the ACL to the Guest VLAN interface (inbound or outbound as appropriate).  
+   ```text
+   interface Vlan10
+     ip access-group GUEST-TO-LAN in
+   ```
+
+**Verification:**  
+- From a guest client, attempt to ping or connect to SRV1; the connection should fail.  
+- Run `show access-lists GUEST-TO-LAN` to confirm the ACL entries.  
+- Run `show run interface Vlan10` to verify the ACL is applied.  
+
+**Human Review:** Pending",
+C026,"**Root Cause:**  
+The DHCP server (R1) is not configured with a DHCP pool for the wireless subnet, so no DHCP lease can be issued to wireless clients.
+
+**Confidence:** 80%
+
+**OSI Layer:** Layer 3
+
+**Concept:** DHCP
+
+**Evidence:**  
+- `show ip dhcp binding` reports **no lease for wireless subnet**.  
+- The deterministic rule checker flags **WIRELESS_DHCP FAIL** indicating the DHCP service is not providing addresses to that subnet.
+
+**Next Command:**  
+```text
+show ip dhcp pool
+```
+
+**Why This Command:**  
+`show ip dhcp pool` will list all DHCP pools configured on R1 and their associated network ranges. If the wireless subnet (e.g., 192.168.10.0/24) is missing, it confirms that the DHCP server lacks a pool for that network, directly supporting the root‑cause hypothesis.
+
+**Fix Steps:**  
+1. **Configure a DHCP pool** for the wireless subnet on R1:  
+   ```text
+   ip dhcp pool Wireless
+    network 192.168.10.0 255.255.255.0
+    default-router 192.168.10.1
+    dns-server 192.168.30.20
+    lease 7
+   ```
+2. **Verify VLAN interface** for the wireless subnet is up and correctly configured on R1 and that the AP/SW1 ports are assigned to the same VLAN.
+
+**Verification:**  
+- Run `show ip dhcp binding` again; a new lease entry for the wireless subnet should appear.  
+- From a wireless client, confirm it receives an IP address in the 192.168.10.0/24 range and can ping the gateway (192.168.10.1).  
+
+**Human Review:** Pending",
+C027,"**Root Cause:**  
+The interface G0/0 on R1 is physically up but the line protocol is down, indicating a Layer‑1 problem—most likely a bad cable, incorrect speed/duplex settings, or a faulty port on the connected switch (SW1).
+
+**Confidence:** 90%
+
+**OSI Layer:** Layer 1 (Physical)
+
+**Concept:** Interface / Physical Layer
+
+**Evidence:**  
+- `show ip interface brief` shows `G0/0 up/down`.  
+- Deterministic Rule Checker: *INTERFACE_LINK FAIL – Interface is up but line protocol is down*.
+
+**Next Command:**  
+```text
+show interfaces G0/0
+```
+
+**Why This Command:**  
+`show interfaces G0/0` provides detailed physical status, including link status, error counters, and speed/duplex configuration. It will confirm that the line protocol is indeed down and reveal any physical errors or mismatches.
+
+**Fix Steps:**  
+1. Inspect the Ethernet cable between R1 G0/0 and SW1; replace if damaged.  
+2. Verify that both ends of the link are configured for the same speed and duplex (or set to auto‑negotiation).  
+3. If the cable is fine, check the SW1 port status and configuration; re‑enable or re‑configure the port if necessary.  
+4. After making changes, reload the interface or reboot the device if required.
+
+**Verification:**  
+- Run `show ip interface brief` again; G0/0 should now display `up/up`.  
+- Perform a ping test from a host on VLAN 10 to R1’s IP (192.168.10.1) and back to confirm traffic forwarding.  
+- Optionally, monitor `show interfaces G0/0` for error counters to ensure no ongoing physical issues.
+
+**Human Review:** Pending",
+C028,"**Root Cause:**  
+PC1 has no default gateway configured, so it cannot forward packets to the remote network.
+
+**Confidence:** 95%
+
+**OSI Layer:** Layer 3 (Network)
+
+**Concept:** Gateway (Default Route)
+
+**Evidence:**  
+- `ipconfig` output shows the default gateway field is empty, indicating the PC lacks a default route to reach any network beyond its local subnet.
+
+**Next Command:**  
+```text
+route print
+```
+
+**Why This Command:**  
+`route print` displays the PC’s routing table. It will confirm that there is no default route (0.0.0.0) pointing to the local gateway (192.168.10.1), thereby validating the root cause.
+
+**Fix Steps:**  
+1. Configure a default gateway on PC1:  
+   - If static IP: `netsh interface ip set address ""Local Area Connection"" static 192.168.10.10 255.255.255.0 192.168.10.1`  
+   - Or enable DHCP to obtain a gateway automatically.  
+2. Verify connectivity:  
+   - `ping 192.168.40.10` (remote network)  
+   - `ping 192.168.10.1` (local gateway)  
+
+**Verification:**  
+After setting the default gateway, `ping 192.168.40.10` should succeed, and `route print` should show a default route (`0.0.0.0`) pointing to 192.168.10.1.
+
+**Human Review:**  
+Pending",
+C029,"**Root Cause:**  
+SRV1 has an incorrectly configured default gateway – it is set to **192.168.40.1** (the gateway for the remote network) instead of the correct gateway **192.168.30.1** for its own VLAN.
+
+**Confidence:** 90%
+
+**OSI Layer:** Layer 3 (IP routing)
+
+**Concept:** Gateway configuration
+
+**Evidence:**  
+- The show command indicates SRV1’s IP is 192.168.30.10/24.  
+- The gateway listed is 192.168.40.1, which is outside SRV1’s subnet.  
+- Local connectivity works because local traffic does not require a gateway, but remote traffic fails because SRV1 cannot forward packets to the remote network.
+
+**Next Command:**
+```text
+ping 192.168.30.1
+```
+
+**Why This Command:**  
+Pinging the correct gateway from SRV1 will confirm whether SRV1 can reach R1. If the ping fails, it confirms the gateway is unreachable or misconfigured; if it succeeds, the issue is solely the wrong gateway address.
+
+**Fix Steps:**  
+1. On SRV1, change the default gateway to **192.168.30.1**.  
+2. Verify the change by pinging the gateway again and then pinging a remote host (e.g., 192.168.40.10) from SRV1.
+
+**Verification:**  
+From a remote PC, ping 192.168.30.10. A successful reply indicates that SRV1 can now route traffic to the remote network. Additionally, run `traceroute 192.168.30.10` from the remote PC to confirm the path goes through R1.
+
+**Human Review:**  
+Pending",
+C030,"**Root Cause:**  
+DNS1 (192.168.30.20) is not reachable or not responding to DNS queries from PC1.
+
+**Confidence:** 70%
+
+**OSI Layer:** Layer 7
+
+**Concept:** DNS
+
+**Evidence:**  
+- `nslookup srv1.local` times out, indicating no DNS response.  
+- `ping 192.168.30.10` (SRV1) succeeds, showing that general IP connectivity between PC1 and the 192.168.30.0/24 subnet is working.
+
+**Next Command:**  
+```text
+ping 192.168.30.20
+```
+
+**Why This Command:**  
+Pinging DNS1 will confirm whether PC1 can reach the DNS server at the network layer. If the ping fails, the issue is a connectivity problem (routing, ACL, interface). If the ping succeeds, the problem lies with DNS server configuration or service availability.
+
+**Fix Steps:**  
+1. **Verify connectivity to DNS1** – If the ping fails, check routing and ACLs between PC1’s VLAN and the 192.168.30.0/24 subnet, and ensure the interface on DNS1 is up.  
+2. **Check DNS service on DNS1** – If the ping succeeds but nslookup still times out, confirm that DNS1 is running and listening on UDP/TCP port 53, and that the zone `srv1.local` is correctly configured and accessible to the PC1 subnet.
+
+**Verification:**  
+After applying the fix, run `nslookup srv1.local` again from PC1. A successful response with the IP address 192.168.30.10 confirms the DNS resolution issue is resolved.
+
+**Human Review:**  
+Pending",
