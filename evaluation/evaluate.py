@@ -1,4 +1,5 @@
 import os
+import re
 import pandas as pd
 
 
@@ -25,7 +26,6 @@ DATA_DIR = os.path.join(
     BASE_DIR,
     "data"
 )
-
 
 CASES_FILE = os.path.join(
     DATA_DIR,
@@ -54,7 +54,7 @@ RESPONSIBLE_FILE = os.path.join(
 
 
 # ============================================================
-# CHECK REQUIRED FILES
+# REQUIRED FILES
 # ============================================================
 
 required_files = {
@@ -66,82 +66,256 @@ required_files = {
 }
 
 
+missing_files = []
+
 for name, file_path in required_files.items():
 
     if not os.path.exists(file_path):
 
-        print()
-        print(
-            f"ERROR: {name} file not found:"
+        missing_files.append(
+            f"{name}: {file_path}"
         )
 
-        print(file_path)
+
+if missing_files:
+
+    print()
+    print("ERROR: Required files are missing.")
+
+    for item in missing_files:
+
+        print(
+            f"- {item}"
+        )
+
+    print()
+
+    raise SystemExit(1)
+
+
+# ============================================================
+# LOAD CSV SAFELY
+# ============================================================
+
+def load_csv(path):
+
+    try:
+
+        return pd.read_csv(
+            path,
+            encoding="utf-8-sig"
+        )
+
+    except Exception as error:
+
+        print()
+        print(
+            f"ERROR reading: {path}"
+        )
+
+        print(
+            f"Reason: {error}"
+        )
 
         raise SystemExit(1)
 
 
+cases = load_csv(
+    CASES_FILE
+)
+
+checker = load_csv(
+    CHECKER_FILE
+)
+
+ai = load_csv(
+    AI_FILE
+)
+
+human = load_csv(
+    HUMAN_FILE
+)
+
+responsible = load_csv(
+    RESPONSIBLE_FILE
+)
+
+
 # ============================================================
-# LOAD DATA
+# NORMALIZE IDS
 # ============================================================
 
-cases = pd.read_csv(
-    CASES_FILE,
-    encoding="utf-8-sig"
-)
+def normalize_ids(df):
 
-checker = pd.read_csv(
-    CHECKER_FILE,
-    encoding="utf-8-sig"
-)
+    if "ID" not in df.columns:
 
-ai = pd.read_csv(
-    AI_FILE,
-    encoding="utf-8-sig"
-)
+        return df
 
-human = pd.read_csv(
-    HUMAN_FILE,
-    encoding="utf-8-sig"
-)
+    df["ID"] = (
+        df["ID"]
+        .astype(str)
+        .str.strip()
+    )
 
-responsible = pd.read_csv(
-    RESPONSIBLE_FILE,
-    encoding="utf-8-sig"
-)
+    return df
+
+
+cases = normalize_ids(cases)
+checker = normalize_ids(checker)
+ai = normalize_ids(ai)
+human = normalize_ids(human)
+responsible = normalize_ids(responsible)
+
+
+# ============================================================
+# BASIC VALIDATION
+# ============================================================
+
+if "ID" not in cases.columns:
+
+    print(
+        "ERROR: cases.csv must contain an ID column."
+    )
+
+    raise SystemExit(1)
+
+
+if "ID" not in checker.columns:
+
+    print(
+        "ERROR: checker_results.csv must contain an ID column."
+    )
+
+    raise SystemExit(1)
+
+
+if "ID" not in ai.columns:
+
+    print(
+        "ERROR: ai_results.csv must contain an ID column."
+    )
+
+    raise SystemExit(1)
 
 
 # ============================================================
 # BASIC COUNTS
 # ============================================================
 
-total_cases = len(cases)
+total_cases = (
+    cases["ID"]
+    .dropna()
+    .nunique()
+)
 
 checker_cases = (
     checker["ID"]
     .dropna()
-    .astype(str)
     .nunique()
 )
 
 ai_cases = (
     ai["ID"]
     .dropna()
-    .astype(str)
     .nunique()
 )
 
 human_cases = (
     human["ID"]
     .dropna()
-    .astype(str)
     .nunique()
 )
 
 responsible_cases = (
     responsible["ID"]
     .dropna()
-    .astype(str)
     .nunique()
+)
+
+
+# ============================================================
+# CASE ID SETS
+# ============================================================
+
+case_ids = set(
+    cases["ID"]
+    .dropna()
+    .astype(str)
+    .str.strip()
+)
+
+checker_ids = set(
+    checker["ID"]
+    .dropna()
+    .astype(str)
+    .str.strip()
+)
+
+ai_ids = set(
+    ai["ID"]
+    .dropna()
+    .astype(str)
+    .str.strip()
+)
+
+human_ids = set(
+    human["ID"]
+    .dropna()
+    .astype(str)
+    .str.strip()
+)
+
+responsible_ids = set(
+    responsible["ID"]
+    .dropna()
+    .astype(str)
+    .str.strip()
+)
+
+
+# ============================================================
+# COVERAGE
+# ============================================================
+
+missing_checker = (
+    case_ids - checker_ids
+)
+
+missing_ai = (
+    case_ids - ai_ids
+)
+
+missing_human = (
+    case_ids - human_ids
+)
+
+missing_responsible = (
+    case_ids - responsible_ids
+)
+
+
+checker_completion = (
+    checker_cases / total_cases * 100
+    if total_cases
+    else 0
+)
+
+ai_completion = (
+    ai_cases / total_cases * 100
+    if total_cases
+    else 0
+)
+
+human_completion = (
+    human_cases / total_cases * 100
+    if total_cases
+    else 0
+)
+
+responsible_completion = (
+    responsible_cases / total_cases * 100
+    if total_cases
+    else 0
 )
 
 
@@ -149,108 +323,321 @@ responsible_cases = (
 # HUMAN REVIEW COUNTS
 # ============================================================
 
-approved = len(
-    human[
+approved = 0
+corrected = 0
+rejected = 0
+
+if (
+    not human.empty
+    and
+    "Reviewer_Decision" in human.columns
+):
+
+    decisions = (
         human["Reviewer_Decision"]
+        .fillna("")
         .astype(str)
         .str.strip()
+    )
+
+    approved = (
+        decisions == "Approved"
+    ).sum()
+
+    corrected = (
+        decisions == "Corrected"
+    ).sum()
+
+    rejected = (
+        decisions == "Rejected"
+    ).sum()
+
+
+reviewed = (
+    approved
+    + corrected
+    + rejected
+)
+
+
+# ============================================================
+# REVIEW RATES
+# ============================================================
+
+approval_rate = (
+    approved / reviewed * 100
+    if reviewed
+    else 0
+)
+
+correction_rate = (
+    corrected / reviewed * 100
+    if reviewed
+    else 0
+)
+
+rejection_rate = (
+    rejected / reviewed * 100
+    if reviewed
+    else 0
+)
+
+
+# ============================================================
+# AI RESPONSE QUALITY CHECKS
+# ============================================================
+
+required_sections = [
+    "Likely Fault",
+    "OSI Layer",
+    "Networking Concept",
+    "Severity",
+    "Evidence",
+    "Next Command",
+    "Recommended Fix",
+    "Verification"
+]
+
+
+def get_diagnosis_text(row):
+
+    if "AI_Diagnosis" not in row.index:
+
+        return ""
+
+    value = row["AI_Diagnosis"]
+
+    if pd.isna(value):
+
+        return ""
+
+    return str(value).strip()
+
+
+def has_section(text, section):
+
+    patterns = [
+        rf"##\s*\d*\.?\s*{re.escape(section)}",
+        rf"\*\*{re.escape(section)}:\*\*",
+        rf"{re.escape(section)}:"
+    ]
+
+    for pattern in patterns:
+
+        if re.search(
+            pattern,
+            text,
+            flags=re.IGNORECASE
+        ):
+
+            return True
+
+    return False
+
+
+# ============================================================
+# ANALYZE AI OUTPUTS
+# ============================================================
+
+ai_quality_records = []
+
+if not ai.empty:
+
+    for _, row in ai.iterrows():
+
+        case_id = str(
+            row.get(
+                "ID",
+                ""
+            )
+        ).strip()
+
+        diagnosis = get_diagnosis_text(
+            row
+        )
+
+        record = {
+            "ID": case_id,
+            "Has_Response": bool(diagnosis),
+            "Insufficient_Evidence": (
+                "insufficient evidence"
+                in diagnosis.lower()
+            )
+        }
+
+
+        for section in required_sections:
+
+            record[
+                "Has_" + section.replace(
+                    " ",
+                    "_"
+                )
+            ] = has_section(
+                diagnosis,
+                section
+            )
+
+
+        ai_quality_records.append(
+            record
+        )
+
+
+ai_quality = pd.DataFrame(
+    ai_quality_records
+)
+
+
+# ============================================================
+# AI QUALITY METRICS
+# ============================================================
+
+if not ai_quality.empty:
+
+    response_count = int(
+        ai_quality["Has_Response"].sum()
+    )
+
+    insufficient_evidence_count = int(
+        ai_quality[
+            "Insufficient_Evidence"
+        ].sum()
+    )
+
+else:
+
+    response_count = 0
+
+    insufficient_evidence_count = 0
+
+
+ai_response_rate = (
+    response_count / ai_cases * 100
+    if ai_cases
+    else 0
+)
+
+
+# ============================================================
+# REQUIRED SECTION COMPLETENESS
+# ============================================================
+
+section_metrics = {}
+
+for section in required_sections:
+
+    column = (
+        "Has_"
+        + section.replace(
+            " ",
+            "_"
+        )
+    )
+
+    if (
+        not ai_quality.empty
+        and column in ai_quality.columns
+    ):
+
+        count = int(
+            ai_quality[column].sum()
+        )
+
+    else:
+
+        count = 0
+
+
+    section_metrics[section] = count
+
+
+# ============================================================
+# RESPONSIBLE AI CHECK
+# ============================================================
+
+logged_approved = 0
+logged_corrected = 0
+logged_rejected = 0
+
+if (
+    not responsible.empty
+    and
+    "Human_Decision"
+    in responsible.columns
+):
+
+    human_decisions = (
+        responsible["Human_Decision"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    logged_approved = (
+        human_decisions
         == "Approved"
-    ]
-)
+    ).sum()
 
-corrected = len(
-    human[
-        human["Reviewer_Decision"]
-        .astype(str)
-        .str.strip()
+    logged_corrected = (
+        human_decisions
         == "Corrected"
-    ]
-)
+    ).sum()
 
-rejected = len(
-    human[
-        human["Reviewer_Decision"]
-        .astype(str)
-        .str.strip()
+    logged_rejected = (
+        human_decisions
         == "Rejected"
-    ]
+    ).sum()
+
+
+logged_review_decisions = (
+    logged_approved
+    + logged_corrected
+    + logged_rejected
 )
 
 
-reviewed = approved + corrected + rejected
+# ============================================================
+# HUMAN / RESPONSIBLE AI CONSISTENCY
+# ============================================================
+
+decision_consistency = (
+    logged_review_decisions == reviewed
+    and reviewed > 0
+)
 
 
 # ============================================================
-# CALCULATE RATES
+# PIPELINE STATUS
 # ============================================================
 
-if reviewed > 0:
-
-    approval_rate = (
-        approved / reviewed
-    ) * 100
-
-    correction_rate = (
-        corrected / reviewed
-    ) * 100
-
-    rejection_rate = (
-        rejected / reviewed
-    ) * 100
-
-else:
-
-    approval_rate = 0
-    correction_rate = 0
-    rejection_rate = 0
+pipeline_complete = (
+    len(missing_checker) == 0
+    and
+    len(missing_ai) == 0
+    and
+    len(missing_human) == 0
+    and
+    len(missing_responsible) == 0
+)
 
 
 # ============================================================
-# COMPLETION RATES
-# ============================================================
-
-if total_cases > 0:
-
-    checker_completion = (
-        checker_cases / total_cases
-    ) * 100
-
-    ai_completion = (
-        ai_cases / total_cases
-    ) * 100
-
-    human_completion = (
-        human_cases / total_cases
-    ) * 100
-
-    responsible_completion = (
-        responsible_cases / total_cases
-    ) * 100
-
-else:
-
-    checker_completion = 0
-    ai_completion = 0
-    human_completion = 0
-    responsible_completion = 0
-
-
-# ============================================================
-# DISPLAY DATA COMPLETENESS
+# DISPLAY DATA PIPELINE
 # ============================================================
 
 print()
 
 print("-" * 70)
-print("DATA PIPELINE")
+print("1. DATA PIPELINE")
 print("-" * 70)
 
 print(
-    f"Total cases:              {total_cases}"
+    f"Total unique cases:       {total_cases}"
 )
 
 print(
-    f"Checker cases:            {checker_cases}"
+    f"Rule checker cases:       {checker_cases}"
 )
 
 print(
@@ -258,7 +645,7 @@ print(
 )
 
 print(
-    f"Human review cases:        {human_cases}"
+    f"Human review cases:       {human_cases}"
 )
 
 print(
@@ -289,29 +676,142 @@ print(
 
 
 # ============================================================
-# HUMAN REVIEW EVALUATION
+# COVERAGE REPORT
 # ============================================================
 
 print()
 
 print("-" * 70)
-print("HUMAN REVIEW RESULTS")
+print("2. CASE COVERAGE")
+print("-" * 70)
+
+
+if not missing_checker:
+
+    print(
+        "Checker:        ALL CASES COVERED"
+    )
+
+else:
+
+    print(
+        f"Checker missing: {sorted(missing_checker)}"
+    )
+
+
+if not missing_ai:
+
+    print(
+        "AI Diagnosis:   ALL CASES COVERED"
+    )
+
+else:
+
+    print(
+        f"AI missing: {sorted(missing_ai)}"
+    )
+
+
+if not missing_human:
+
+    print(
+        "Human Review:   ALL CASES COVERED"
+    )
+
+else:
+
+    print(
+        f"Human missing: {sorted(missing_human)}"
+    )
+
+
+if not missing_responsible:
+
+    print(
+        "Responsible AI: ALL CASES COVERED"
+    )
+
+else:
+
+    print(
+        "Responsible missing:"
+    )
+
+    print(
+        sorted(missing_responsible)
+    )
+
+
+# ============================================================
+# AI RESPONSE QUALITY
+# ============================================================
+
+print()
+
+print("-" * 70)
+print("3. AI RESPONSE QUALITY")
 print("-" * 70)
 
 print(
-    f"Reviewed:     {reviewed}"
+    f"AI responses available:  "
+    f"{response_count}/{ai_cases}"
 )
 
 print(
-    f"Approved:     {approved}"
+    f"AI response rate:        "
+    f"{ai_response_rate:.2f}%"
 )
 
 print(
-    f"Corrected:    {corrected}"
+    f"Insufficient evidence:    "
+    f"{insufficient_evidence_count}"
+)
+
+print()
+
+print(
+    "Required section coverage:"
+)
+
+for section, count in section_metrics.items():
+
+    percentage = (
+        count / ai_cases * 100
+        if ai_cases
+        else 0
+    )
+
+    print(
+        f"- {section:<22} "
+        f"{count}/{ai_cases} "
+        f"({percentage:.2f}%)"
+    )
+
+
+# ============================================================
+# HUMAN REVIEW RESULTS
+# ============================================================
+
+print()
+
+print("-" * 70)
+print("4. HUMAN REVIEW RESULTS")
+print("-" * 70)
+
+print(
+    f"Reviewed:         {reviewed}"
 )
 
 print(
-    f"Rejected:     {rejected}"
+    f"Approved:         {approved}"
+)
+
+print(
+    f"Corrected:        {corrected}"
+)
+
+print(
+    f"Rejected:         {rejected}"
 )
 
 print()
@@ -333,181 +833,159 @@ print(
 
 
 # ============================================================
-# CASE COVERAGE CHECK
-# ============================================================
-
-case_ids = set(
-    cases["ID"]
-    .astype(str)
-    .str.strip()
-)
-
-checker_ids = set(
-    checker["ID"]
-    .astype(str)
-    .str.strip()
-)
-
-ai_ids = set(
-    ai["ID"]
-    .astype(str)
-    .str.strip()
-)
-
-human_ids = set(
-    human["ID"]
-    .astype(str)
-    .str.strip()
-)
-
-responsible_ids = set(
-    responsible["ID"]
-    .astype(str)
-    .str.strip()
-)
-
-
-missing_checker = (
-    case_ids - checker_ids
-)
-
-missing_ai = (
-    case_ids - ai_ids
-)
-
-missing_human = (
-    case_ids - human_ids
-)
-
-missing_responsible = (
-    case_ids - responsible_ids
-)
-
-
-# ============================================================
-# COVERAGE REPORT
+# RESPONSIBLE AI RESULTS
 # ============================================================
 
 print()
 
 print("-" * 70)
-print("CASE COVERAGE")
+print("5. RESPONSIBLE AI CHECK")
 print("-" * 70)
 
+print(
+    f"Approved logged:   "
+    f"{logged_approved}"
+)
 
-if not missing_checker:
+print(
+    f"Corrected logged:  "
+    f"{logged_corrected}"
+)
+
+print(
+    f"Rejected logged:   "
+    f"{logged_rejected}"
+)
+
+print()
+
+if decision_consistency:
 
     print(
-        "Checker:        ALL CASES COVERED"
+        "Human review and audit log: CONSISTENT"
+    )
+
+elif reviewed == 0:
+
+    print(
+        "Human review and audit log: "
+        "NO REVIEWS AVAILABLE"
     )
 
 else:
 
     print(
-        "Checker missing:"
-    )
-
-    print(
-        sorted(missing_checker)
-    )
-
-
-if not missing_ai:
-
-    print(
-        "AI Diagnosis:   ALL CASES COVERED"
-    )
-
-else:
-
-    print(
-        "AI missing:"
-    )
-
-    print(
-        sorted(missing_ai)
-    )
-
-
-if not missing_human:
-
-    print(
-        "Human Review:   ALL CASES COVERED"
-    )
-
-else:
-
-    print(
-        "Human review missing:"
-    )
-
-    print(
-        sorted(missing_human)
-    )
-
-
-if not missing_responsible:
-
-    print(
-        "Responsible AI: ALL CASES COVERED"
-    )
-
-else:
-
-    print(
-        "Responsible AI missing:"
-    )
-
-    print(
-        sorted(missing_responsible)
+        "Human review and audit log: "
+        "INCONSISTENT"
     )
 
 
 # ============================================================
-# RESPONSIBLE AI CHECKS
+# DUPLICATE CHECK
 # ============================================================
 
 print()
 
 print("-" * 70)
-print("RESPONSIBLE AI CHECKS")
+print("6. DATA INTEGRITY")
 print("-" * 70)
 
 
-if "Human_Decision" in responsible.columns:
+def duplicate_count(df):
 
-    human_decisions = (
-        responsible["Human_Decision"]
-        .astype(str)
-        .str.strip()
+    if (
+        df.empty
+        or
+        "ID" not in df.columns
+    ):
+
+        return 0
+
+    return int(
+        df["ID"].duplicated().sum()
     )
 
-    logged_approved = (
-        human_decisions == "Approved"
-    ).sum()
 
-    logged_corrected = (
-        human_decisions == "Corrected"
-    ).sum()
+cases_duplicates = duplicate_count(
+    cases
+)
 
-    logged_rejected = (
-        human_decisions == "Rejected"
-    ).sum()
+checker_duplicates = duplicate_count(
+    checker
+)
 
-    print(
-        f"Approved decisions logged:  "
-        f"{logged_approved}"
-    )
+ai_duplicates = duplicate_count(
+    ai
+)
 
-    print(
-        f"Corrected decisions logged: "
-        f"{logged_corrected}"
-    )
+human_duplicates = duplicate_count(
+    human
+)
 
-    print(
-        f"Rejected decisions logged:  "
-        f"{logged_rejected}"
-    )
+responsible_duplicates = duplicate_count(
+    responsible
+)
+
+
+print(
+    f"Cases duplicate IDs:       "
+    f"{cases_duplicates}"
+)
+
+print(
+    f"Checker duplicate IDs:     "
+    f"{checker_duplicates}"
+)
+
+print(
+    f"AI duplicate IDs:          "
+    f"{ai_duplicates}"
+)
+
+print(
+    f"Human review duplicate IDs:"
+    f" {human_duplicates}"
+)
+
+print(
+    f"Responsible duplicate IDs: "
+    f"{responsible_duplicates}"
+)
+
+
+# ============================================================
+# AI/HUMAN CASE ALIGNMENT
+# ============================================================
+
+print()
+
+ai_without_case = (
+    ai_ids - case_ids
+)
+
+human_without_case = (
+    human_ids - case_ids
+)
+
+responsible_without_case = (
+    responsible_ids - case_ids
+)
+
+
+print(
+    f"AI records without case:          "
+    f"{len(ai_without_case)}"
+)
+
+print(
+    f"Human records without case:      "
+    f"{len(human_without_case)}"
+)
+
+print(
+    f"Audit records without case:      "
+    f"{len(responsible_without_case)}"
+)
 
 
 # ============================================================
@@ -517,57 +995,168 @@ if "Human_Decision" in responsible.columns:
 print()
 
 print("=" * 70)
-print("FINAL EVALUATION")
+print("7. FINAL EVALUATION")
 print("=" * 70)
 
-if (
-    total_cases == 30
-    and checker_cases == 30
-    and ai_cases == 30
-    and human_cases == 30
-    and responsible_cases == 30
-):
+
+integrity_ok = (
+    cases_duplicates == 0
+    and
+    ai_duplicates == 0
+    and
+    human_duplicates == 0
+    and
+    responsible_duplicates == 0
+)
+
+alignment_ok = (
+    len(ai_without_case) == 0
+    and
+    len(human_without_case) == 0
+    and
+    len(responsible_without_case) == 0
+)
+
+
+if pipeline_complete:
 
     print()
     print(
-        "STATUS: COMPLETE"
-    )
-
-    print()
-    print(
-        "All 30 cases passed through:"
-    )
-
-    print(
-        "1. Rule-based checking"
-    )
-
-    print(
-        "2. AI diagnosis"
-    )
-
-    print(
-        "3. Human review"
-    )
-
-    print(
-        "4. Responsible AI logging"
+        "PIPELINE STATUS: COMPLETE"
     )
 
 else:
 
     print()
     print(
-        "STATUS: INCOMPLETE"
+        "PIPELINE STATUS: INCOMPLETE"
     )
+
+
+if response_count == ai_cases and ai_cases > 0:
 
     print(
-        "Some cases are missing from "
-        "one or more pipeline stages."
+        "AI RESPONSE STATUS: COMPLETE"
+    )
+
+else:
+
+    print(
+        "AI RESPONSE STATUS: INCOMPLETE"
     )
 
 
+if integrity_ok:
+
+    print(
+        "DATA INTEGRITY: PASS"
+    )
+
+else:
+
+    print(
+        "DATA INTEGRITY: CHECK REQUIRED"
+    )
+
+
+if alignment_ok:
+
+    print(
+        "CASE ALIGNMENT: PASS"
+    )
+
+else:
+
+    print(
+        "CASE ALIGNMENT: CHECK REQUIRED"
+    )
+
+
+# ============================================================
+# IMPORTANT INTERPRETATION
+# ============================================================
+
 print()
+
+print("-" * 70)
+print("INTERPRETATION")
+print("-" * 70)
+
+print(
+    "Human approval rate is NOT treated as independent "
+    "AI accuracy."
+)
+
+print(
+    "A human-approved diagnosis indicates that the reviewer "
+    "accepted the AI diagnosis."
+)
+
+print(
+    "A corrected or rejected diagnosis indicates that "
+    "human intervention changed or rejected the AI output."
+)
+
+print(
+    "Independent AI accuracy requires a separate ground-truth "
+    "evaluation dataset or trusted reference labels."
+)
+
+
+# ============================================================
+# FINAL SUMMARY
+# ============================================================
+
+print()
+
+print("=" * 70)
+print("EVALUATION SUMMARY")
+print("=" * 70)
+
+print()
+
+print(
+    f"Cases:                 {total_cases}"
+)
+
+print(
+    f"AI responses:          {ai_cases}"
+)
+
+print(
+    f"Human reviewed:        {reviewed}"
+)
+
+print(
+    f"Approved:              {approved}"
+)
+
+print(
+    f"Corrected:             {corrected}"
+)
+
+print(
+    f"Rejected:              {rejected}"
+)
+
+print(
+    f"Approval rate:         {approval_rate:.2f}%"
+)
+
+print(
+    f"Correction rate:       {correction_rate:.2f}%"
+)
+
+print(
+    f"Rejection rate:        {rejection_rate:.2f}%"
+)
+
+print(
+    f"Responsible AI logs:   {responsible_cases}"
+)
+
+print()
+
 print("=" * 70)
 print("Evaluation finished.")
 print("=" * 70)

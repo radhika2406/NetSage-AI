@@ -64,10 +64,15 @@ if not API_KEY:
     print("ERROR: GROQ_API_KEY WAS NOT FOUND")
     print("=" * 70)
     print()
-    print("Run this first:")
+    print("Set the API key before running this program.")
     print()
+    print('Windows CMD:')
     print('set "GROQ_API_KEY=YOUR_GROQ_API_KEY"')
     print()
+    print('Windows PowerShell:')
+    print('$env:GROQ_API_KEY="YOUR_GROQ_API_KEY"')
+    print()
+
     raise SystemExit(1)
 
 
@@ -88,58 +93,134 @@ MODEL = "openai/gpt-oss-20b"
 
 
 # ============================================================
-# CHECK FILES
+# CHECK REQUIRED FILES
 # ============================================================
 
-if not os.path.exists(CASES_FILE):
-
-    print("ERROR: cases.csv not found.")
-    raise SystemExit(1)
-
-
-if not os.path.exists(CHECKER_FILE):
-
-    print("ERROR: checker_results.csv not found.")
-    raise SystemExit(1)
+required_files = {
+    "cases.csv": CASES_FILE,
+    "checker_results.csv": CHECKER_FILE,
+    "diagnose_prompt.md": PROMPT_FILE
+}
 
 
-if not os.path.exists(PROMPT_FILE):
+for name, path in required_files.items():
 
-    print("ERROR: diagnose_prompt.md not found.")
-    raise SystemExit(1)
+    if not os.path.exists(path):
+
+        print()
+        print(
+            f"ERROR: {name} not found."
+        )
+
+        print(
+            path
+        )
+
+        raise SystemExit(1)
 
 
 # ============================================================
 # LOAD CASES
 # ============================================================
 
-cases = pd.read_csv(
-    CASES_FILE,
-    encoding="utf-8-sig"
-)
+try:
+
+    cases = pd.read_csv(
+        CASES_FILE,
+        encoding="utf-8-sig"
+    )
+
+except Exception as error:
+
+    print(
+        f"ERROR loading cases.csv: {error}"
+    )
+
+    raise SystemExit(1)
 
 
 # ============================================================
 # LOAD CHECKER RESULTS
 # ============================================================
 
-checker_results = pd.read_csv(
-    CHECKER_FILE,
-    encoding="utf-8-sig"
-)
+try:
+
+    checker_results = pd.read_csv(
+        CHECKER_FILE,
+        encoding="utf-8-sig"
+    )
+
+except Exception as error:
+
+    print(
+        f"ERROR loading checker_results.csv: {error}"
+    )
+
+    raise SystemExit(1)
+
+
+# ============================================================
+# VALIDATE REQUIRED COLUMNS
+# ============================================================
+
+required_case_columns = [
+    "ID",
+    "Symptom",
+    "Topology / Devices",
+    "Show Output / Evidence"
+]
+
+missing_case_columns = [
+    column
+    for column in required_case_columns
+    if column not in cases.columns
+]
+
+if missing_case_columns:
+
+    print()
+    print(
+        "ERROR: cases.csv is missing required columns:"
+    )
+
+    print(
+        missing_case_columns
+    )
+
+    raise SystemExit(1)
+
+
+if "ID" not in checker_results.columns:
+
+    print()
+    print(
+        "ERROR: checker_results.csv must contain an ID column."
+    )
+
+    raise SystemExit(1)
 
 
 # ============================================================
 # LOAD PROMPT
 # ============================================================
 
-with open(
-    PROMPT_FILE,
-    "r",
-    encoding="utf-8"
-) as file:
+try:
 
-    prompt_template = file.read()
+    with open(
+        PROMPT_FILE,
+        "r",
+        encoding="utf-8"
+    ) as file:
+
+        prompt_template = file.read()
+
+except Exception as error:
+
+    print(
+        f"ERROR loading diagnosis prompt: {error}"
+    )
+
+    raise SystemExit(1)
 
 
 print()
@@ -148,8 +229,7 @@ print(
 )
 
 print(
-    f"Checker results loaded: "
-    f"{len(checker_results)}"
+    f"Checker results loaded: {len(checker_results)}"
 )
 
 print(
@@ -172,8 +252,14 @@ if os.path.exists(AI_RESULTS_FILE):
 
     except Exception:
 
+        print()
         print(
-            "Existing ai_results.csv could not be read."
+            "WARNING: Existing ai_results.csv "
+            "could not be read."
+        )
+
+        print(
+            "A new result file will be created."
         )
 
         ai_results = pd.DataFrame(
@@ -194,31 +280,69 @@ else:
 
 
 # ============================================================
-# FIND EXISTING CASES
+# ENSURE REQUIRED AI COLUMNS
 # ============================================================
 
-if (
-    "ID" in ai_results.columns
-    and len(ai_results) > 0
-):
+if "ID" not in ai_results.columns:
 
-    existing_ids = set(
+    ai_results["ID"] = pd.Series(
+        dtype="object"
+    )
+
+
+if "AI_Diagnosis" not in ai_results.columns:
+
+    ai_results["AI_Diagnosis"] = pd.Series(
+        dtype="object"
+    )
+
+
+# ============================================================
+# NORMALIZE EXISTING IDs
+# ============================================================
+
+if len(ai_results) > 0:
+
+    ai_results["ID"] = (
         ai_results["ID"]
-        .dropna()
         .astype(str)
         .str.strip()
     )
 
-else:
 
-    existing_ids = set()
+# ============================================================
+# REMOVE DUPLICATE EXISTING RESULTS
+# ============================================================
+
+if len(ai_results) > 0:
+
+    ai_results = (
+        ai_results
+        .drop_duplicates(
+            subset=["ID"],
+            keep="last"
+        )
+        .reset_index(drop=True)
+    )
+
+
+# ============================================================
+# FIND EXISTING CASES
+# ============================================================
+
+existing_ids = set(
+    ai_results["ID"]
+    .dropna()
+    .astype(str)
+    .str.strip()
+)
 
 
 print()
 print(
-    f"Existing AI results: "
-    f"{len(existing_ids)}"
+    f"Existing AI results: {len(existing_ids)}"
 )
+
 
 if existing_ids:
 
@@ -232,14 +356,44 @@ if existing_ids:
 
 
 # ============================================================
+# HELPER FUNCTION
+# ============================================================
+
+def safe_text(value):
+    """
+    Convert CSV values into safe text for the prompt.
+    """
+
+    if pd.isna(value):
+
+        return "Not provided."
+
+    return str(value).strip()
+
+
+# ============================================================
 # PROCESS CASES
 # ============================================================
 
 for index, case in cases.iterrows():
 
-    case_id = str(
+    case_id = safe_text(
         case["ID"]
-    ).strip()
+    )
+
+
+    # --------------------------------------------------------
+    # SKIP EMPTY CASE ID
+    # --------------------------------------------------------
+
+    if not case_id:
+
+        print()
+        print(
+            f"[SKIP] Row {index + 1} has no case ID."
+        )
+
+        continue
 
 
     # --------------------------------------------------------
@@ -250,8 +404,7 @@ for index, case in cases.iterrows():
 
         print()
         print(
-            f"[SKIP] {case_id} "
-            f"already exists."
+            f"[SKIP] {case_id} already exists."
         )
 
         continue
@@ -280,17 +433,39 @@ for index, case in cases.iterrows():
     ]
 
 
-    if len(checker_rows) > 0:
+    if not checker_rows.empty:
 
         checker_parts = []
 
         for _, row in checker_rows.iterrows():
 
-            checker_parts.append(
-                f"Rule: {row.get('Rule', '')}\n"
-                f"Status: {row.get('Status', '')}\n"
-                f"Finding: {row.get('Finding', '')}"
+            rule = safe_text(
+                row.get(
+                    "Rule",
+                    ""
+                )
             )
+
+            status = safe_text(
+                row.get(
+                    "Status",
+                    ""
+                )
+            )
+
+            finding = safe_text(
+                row.get(
+                    "Finding",
+                    ""
+                )
+            )
+
+            checker_parts.append(
+                f"Rule: {rule}\n"
+                f"Status: {status}\n"
+                f"Finding: {finding}"
+            )
+
 
         checker_text = "\n\n".join(
             checker_parts
@@ -300,7 +475,7 @@ for index, case in cases.iterrows():
 
         checker_text = (
             "No deterministic rule checker "
-            "finding was available."
+            "finding was available for this case."
         )
 
 
@@ -310,6 +485,11 @@ for index, case in cases.iterrows():
 
     prompt = prompt_template
 
+
+    # --------------------------------------------------------
+    # INSERT CASE INFORMATION
+    # --------------------------------------------------------
+
     prompt = prompt.replace(
         "{{case_id}}",
         case_id
@@ -317,103 +497,78 @@ for index, case in cases.iterrows():
 
     prompt = prompt.replace(
         "{{symptom}}",
-        str(case["Symptom"])
+        safe_text(
+            case["Symptom"]
+        )
     )
 
     prompt = prompt.replace(
         "{{topology_note}}",
-        str(case["Topology / Devices"])
+        safe_text(
+            case["Topology / Devices"]
+        )
     )
 
     prompt = prompt.replace(
         "{{show_output}}",
-        str(case["Show Output / Evidence"])
+        safe_text(
+            case["Show Output / Evidence"]
+        )
     )
 
 
-    # --------------------------------------------------------
-    # ADD RULE CHECKER INFORMATION
-    # --------------------------------------------------------
+    # ========================================================
+    # ADD CHECKER FINDINGS AS SUPPORTING EVIDENCE
+    # ========================================================
 
     prompt += """
 
-============================================================
-DETERMINISTIC RULE CHECKER FINDINGS
-============================================================
+---
+
+# DETERMINISTIC RULE CHECKER FINDINGS
+
+The following findings were produced by the deterministic
+rule-checking stage.
+
+Treat these findings as additional evidence.
+
+Do not automatically accept them as the final diagnosis.
+Evaluate them against the actual symptom, topology, and
+supplied command output.
 
 """
 
     prompt += checker_text
 
 
-    # --------------------------------------------------------
-    # FINAL TASK
-    # --------------------------------------------------------
+    # ========================================================
+    # FINAL AI INSTRUCTION
+    # ========================================================
 
     prompt += """
 
-============================================================
-FINAL TASK
-============================================================
+---
 
-Analyze the case using the supplied evidence.
+# FINAL INSTRUCTION
 
-Use:
+Now diagnose this case.
 
-1. Symptom
-2. Topology / Devices
-3. Show Command Output / Evidence
-4. Deterministic Rule Checker Findings
+Use only the information supplied above.
 
-Do NOT invent:
+Do not use any expected answer or hidden reference answer.
 
-- IP addresses
-- VLANs
-- routes
-- ACL entries
-- interfaces
-- command output
-- configurations
+Do not invent network information.
 
-Do NOT blindly accept the rule checker.
-
-If the evidence is insufficient, say:
+If the evidence is insufficient to identify a root cause,
+write exactly:
 
 Insufficient evidence
 
-Return exactly these sections:
+in the Likely Fault field and explain what additional
+evidence is required.
 
-Root Cause:
-<most likely root cause>
-
-Confidence:
-<0-100%>
-
-OSI Layer:
-<Layer 1 / Layer 2 / Layer 3 / Layer 4 / Layer 7>
-
-Concept:
-<VLAN / Routing / DHCP / DNS / ACL / NAT /
-Gateway / OSPF / Wireless / Interface / etc.>
-
-Evidence:
-- <important evidence>
-
-Next Command:
-<Cisco or endpoint command>
-
-Why This Command:
-<why the command will confirm the diagnosis>
-
-Fix Steps:
-1. <step 1>
-2. <step 2>
-
-Verification:
-<how to verify the fix>
-
-Human Review:
-Pending
+Return the diagnosis using the required response structure
+defined in the prompt.
 """
 
 
@@ -433,8 +588,10 @@ Pending
                     "content": (
                         "You are NetSage AI, a Cisco-style "
                         "network troubleshooting assistant. "
-                        "Reason from evidence and do not "
-                        "invent network information."
+                        "Your diagnosis must be evidence-based. "
+                        "Never invent network information. "
+                        "Do not use expected answers or "
+                        "hidden reference fields."
                     )
                 },
                 {
@@ -445,30 +602,57 @@ Pending
 
             temperature=0.2,
 
-            max_tokens=1500
+            max_tokens=1800
         )
 
 
-        # ----------------------------------------------------
-        # GET RESPONSE
-        # ----------------------------------------------------
+        # ====================================================
+        # EXTRACT RESPONSE
+        # ====================================================
 
-        diagnosis = (
-            response
-            .choices[0]
-            .message
-            .content
-        )
+        diagnosis = ""
 
+
+        try:
+
+            diagnosis = (
+                response
+                .choices[0]
+                .message
+                .content
+            )
+
+        except Exception:
+
+            diagnosis = ""
+
+
+        if diagnosis is None:
+
+            diagnosis = ""
+
+
+        diagnosis = str(
+            diagnosis
+        ).strip()
+
+
+        # ====================================================
+        # VALIDATE RESPONSE
+        # ====================================================
 
         if not diagnosis:
 
-            diagnosis = (
-                "No diagnosis returned by Groq."
+            print()
+            print(
+                f"FAILED: {case_id}"
             )
 
+            print(
+                "Groq returned an empty diagnosis."
+            )
 
-        diagnosis = diagnosis.strip()
+            continue
 
 
         # ====================================================
@@ -495,8 +679,22 @@ Pending
 
 
         # ----------------------------------------------------
-        # SAVE AFTER EVERY CASE
+        # Remove accidental duplicates
         # ----------------------------------------------------
+
+        ai_results = (
+            ai_results
+            .drop_duplicates(
+                subset=["ID"],
+                keep="last"
+            )
+            .reset_index(drop=True)
+        )
+
+
+        # ====================================================
+        # SAVE AFTER EVERY CASE
+        # ====================================================
 
         ai_results.to_csv(
             AI_RESULTS_FILE,
@@ -516,11 +714,11 @@ Pending
         )
 
         print(
-            f"Saved result to:"
+            "AI diagnosis saved."
         )
 
         print(
-            AI_RESULTS_FILE
+            f"Results file: {AI_RESULTS_FILE}"
         )
 
 
@@ -530,7 +728,9 @@ Pending
 
     except Exception as error:
 
-        error_message = str(error)
+        error_message = str(
+            error
+        )
 
 
         print()
@@ -544,7 +744,7 @@ Pending
 
 
         # ----------------------------------------------------
-        # API LIMIT
+        # API RATE LIMIT / QUOTA
         # ----------------------------------------------------
 
         if (
@@ -561,13 +761,16 @@ Pending
             print("=" * 70)
             print("GROQ API LIMIT DETECTED")
             print("=" * 70)
+
             print()
             print(
                 "Stopping safely."
             )
+
             print(
                 "Already completed cases are saved."
             )
+
             print()
 
             break
@@ -580,17 +783,25 @@ Pending
         if (
             "model" in error_message.lower()
             and
-            "not found" in error_message.lower()
+            (
+                "not found" in error_message.lower()
+                or
+                "does not exist" in error_message.lower()
+                or
+                "invalid" in error_message.lower()
+            )
         ):
 
             print()
             print(
-                "The selected Groq model is unavailable."
+                "The selected Groq model may be unavailable."
             )
 
             print(
                 f"Current model: {MODEL}"
             )
+
+            print()
 
             break
 
@@ -625,18 +836,20 @@ print("=" * 70)
 print()
 
 print(
-    f"Total cases: "
-    f"{len(cases)}"
+    f"Total cases: {len(cases)}"
 )
 
 print(
-    f"AI results available: "
-    f"{len(ai_results)}"
+    f"AI results available: {len(ai_results)}"
+)
+
+remaining_cases = max(
+    0,
+    len(cases) - len(ai_results)
 )
 
 print(
-    f"Remaining cases: "
-    f"{len(cases) - len(ai_results)}"
+    f"Remaining cases: {remaining_cases}"
 )
 
 print()
@@ -648,6 +861,20 @@ print(
 print(
     AI_RESULTS_FILE
 )
+
+print()
+
+if remaining_cases == 0:
+
+    print(
+        "STATUS: ALL CASES PROCESSED"
+    )
+
+else:
+
+    print(
+        "STATUS: SOME CASES REMAIN"
+    )
 
 print()
 

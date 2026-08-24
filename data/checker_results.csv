@@ -1,9 +1,9 @@
-ID,Rule,Status,Finding
-C001,MISSING_ROUTE,FAIL,Route to 192.168.40.0/24 is missing
-C002,WRONG_VLAN,FAIL,PC2 switch port is assigned to VLAN 20 instead of VLAN 10
+﻿ID,Rule,Status,Finding
+C001,MISSING_ROUTE,FAIL,Evidence indicates that a required route is missing
+C002,WRONG_VLAN,FAIL,Evidence indicates that the PC2 switch port is assigned to the wrong VLAN
 C003,DHCP_POOL,FAIL,DHCP pool for 192.168.10.0/24 is missing
 C004,DNS_FAILURE,FAIL,DNS request is timing out
-C005,ACL_BLOCK,FAIL,ACL denies traffic from VLAN 10 to VLAN 30
+C005,ACL_BLOCK,FAIL,ACL denies traffic from 192.168.10.0/24 to 192.168.30.0/24
 C006,NAT_MISSING,FAIL,NAT/PAT configuration is missing
 C007,INTERFACE_SHUTDOWN,FAIL,Interface is administratively down
 C008,MISSING_VLAN,FAIL,Required VLAN 20 is missing
@@ -12,20 +12,20 @@ C010,GATEWAY_MISMATCH,FAIL,Gateway 192.168.20.1 is outside host network 192.168.
 C011,DHCP_RELAY,FAIL,DHCP relay/helper address is missing
 C012,DHCP_POOL_EXHAUSTED,FAIL,DHCP pool has no available addresses
 C013,DUPLICATE_IP,FAIL,Same IP address is associated with multiple MAC addresses
-C014,MISSING_ROUTE,FAIL,Route to 192.168.40.0/24 is missing
-C015,WRONG_NEXT_HOP,FAIL,Static route uses incorrect next-hop address
-C016,MISSING_ROUTE,FAIL,Route to 192.168.40.0/24 is missing
-C017,NONE,INFO,No rule matched
+C014,MISSING_ROUTE,FAIL,Evidence indicates that a required route is missing
+C015,WRONG_NEXT_HOP,FAIL,Evidence indicates that the configured next-hop is incorrect
+C016,MISSING_ROUTE,FAIL,Evidence indicates that a required route is missing
+C017,NONE,INFO,No deterministic rule matched the supplied evidence
 C018,ACL_ICMP,FAIL,ACL blocks ICMP traffic
 C019,ACL_HTTP,FAIL,ACL blocks HTTP traffic on TCP port 80
 C020,ACL_DIRECTION,FAIL,ACL is applied in the wrong direction
 C021,NAT_ACL,FAIL,NAT ACL does not match the internal network
 C022,NAT_INCOMPLETE,FAIL,NAT ACL does not include VLAN 20
-C023,STATIC_NAT,FAIL,Static NAT translation for SRV1 is missing
+C023,STATIC_NAT,FAIL,Static NAT translation for the server is missing
 C024,WIRELESS_VLAN,FAIL,Access point port is assigned to the wrong VLAN
 C025,GUEST_ISOLATION,FAIL,Guest-to-LAN isolation ACL is missing
 C026,WIRELESS_DHCP,FAIL,No DHCP lease exists for the wireless subnet
 C027,INTERFACE_LINK,FAIL,Interface is up but line protocol is down
-C028,NONE,INFO,No rule matched
-C029,NONE,INFO,No rule matched
+C028,NONE,INFO,No deterministic rule matched the supplied evidence
+C029,NONE,INFO,No deterministic rule matched the supplied evidence
 C030,DNS_FAILURE,FAIL,DNS request is timing out

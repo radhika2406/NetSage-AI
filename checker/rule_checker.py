@@ -5,32 +5,45 @@ import ipaddress
 
 
 # ============================================================
-# FILE LOCATION
+# NETSAGE AI - CISCO NETWORK RULE CHECKER
 # ============================================================
 
+print("=" * 70)
+print("NETSAGE AI - CISCO NETWORK RULE CHECKER")
+print("=" * 70)
+
+
+# ============================================================
+# FILE PATHS
+# ============================================================
+
+BASE_DIR = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
+
+DATA_DIR = os.path.join(
+    BASE_DIR,
+    "data"
+)
+
 CSV_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),
-    "data",
+    DATA_DIR,
     "cases.csv"
 )
 
 RESULT_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),
-    "data",
+    DATA_DIR,
     "checker_results.csv"
 )
 
+
 # ============================================================
-# RULE CHECK FUNCTIONS
+# RULE: DEFAULT GATEWAY
 # ============================================================
 
 def check_gateway(evidence):
-    """
-    Detect gateway mismatch from evidence.
-    Example:
-    IP = 192.168.10.10/24
-    gateway = 192.168.20.1
-    """
 
     ip_match = re.search(
         r"IP\s*=\s*(\d+\.\d+\.\d+\.\d+)/(\d+)",
@@ -45,17 +58,33 @@ def check_gateway(evidence):
     )
 
     if not ip_match or not gateway_match:
+
         return None
 
     ip_address = ip_match.group(1)
     prefix = int(ip_match.group(2))
     gateway = gateway_match.group(1)
 
-    host = ipaddress.ip_interface(
-        f"{ip_address}/{prefix}"
-    )
+    try:
 
-    gateway_ip = ipaddress.ip_address(gateway)
+        host = ipaddress.ip_interface(
+            f"{ip_address}/{prefix}"
+        )
+
+        gateway_ip = ipaddress.ip_address(
+            gateway
+        )
+
+    except ValueError:
+
+        return {
+            "rule": "INVALID_IP_CONFIGURATION",
+            "status": "FAIL",
+            "finding": (
+                "Invalid IP address or prefix "
+                "detected in supplied evidence"
+            )
+        }
 
     if gateway_ip not in host.network:
 
@@ -71,40 +100,47 @@ def check_gateway(evidence):
     return {
         "rule": "GATEWAY_CHECK",
         "status": "PASS",
-        "finding": "Gateway belongs to the correct network"
+        "finding": (
+            "Gateway belongs to the host network"
+        )
     }
 
 
-# ------------------------------------------------------------
-# Missing Route
-# ------------------------------------------------------------
+# ============================================================
+# RULE: MISSING ROUTE
+# ============================================================
 
 def check_missing_route(evidence):
 
     text = evidence.lower()
 
-    if (
-        "no route to 192.168.40.0/24" in text
-        or "192.168.40.0/24 absent" in text
-        or "no route" in text
-        or ("route" in text and "absent" in text)
+    patterns = [
+        "no route to 192.168.40.0/24",
+        "192.168.40.0/24 absent",
+        "no route",
+        "route absent"
+    ]
+
+    if any(
+        pattern in text
+        for pattern in patterns
     ):
 
         return {
             "rule": "MISSING_ROUTE",
             "status": "FAIL",
             "finding": (
-                "Route to 192.168.40.0/24 "
-                "is missing"
+                "Evidence indicates that a required "
+                "route is missing"
             )
         }
 
     return None
 
 
-# ------------------------------------------------------------
-# Wrong Next Hop
-# ------------------------------------------------------------
+# ============================================================
+# RULE: WRONG NEXT HOP
+# ============================================================
 
 def check_next_hop(evidence):
 
@@ -113,42 +149,42 @@ def check_next_hop(evidence):
     if (
         "wrong next hop" in text
         or "wrong next-hop" in text
-        or "10.0.0.9" in text
     ):
 
         return {
             "rule": "WRONG_NEXT_HOP",
             "status": "FAIL",
             "finding": (
-                "Static route uses incorrect "
-                "next-hop address"
+                "Evidence indicates that the "
+                "configured next-hop is incorrect"
             )
         }
 
     return None
 
 
-# ------------------------------------------------------------
-# VLAN
-# ------------------------------------------------------------
+# ============================================================
+# RULE: VLAN
+# ============================================================
 
 def check_vlan(evidence):
 
     text = evidence.lower()
 
     if "show vlan brief" not in text:
+
         return None
 
-    # Missing VLAN
     if "vlan 20 absent" in text:
 
         return {
             "rule": "MISSING_VLAN",
             "status": "FAIL",
-            "finding": "Required VLAN 20 is missing"
+            "finding": (
+                "Required VLAN 20 is missing"
+            )
         }
 
-    # Wrong VLAN assignment
     if (
         "fa0/1 vlan 10" in text
         and "fa0/2 vlan 20" in text
@@ -158,13 +194,16 @@ def check_vlan(evidence):
             "rule": "WRONG_VLAN",
             "status": "FAIL",
             "finding": (
+                "Evidence indicates that the "
                 "PC2 switch port is assigned "
-                "to VLAN 20 instead of VLAN 10"
+                "to the wrong VLAN"
             )
         }
 
-    # Wireless VLAN
-    if "ap port assigned to vlan 20" in text:
+    if (
+        "ap port assigned to vlan 20"
+        in text
+    ):
 
         return {
             "rule": "WIRELESS_VLAN",
@@ -178,9 +217,9 @@ def check_vlan(evidence):
     return None
 
 
-# ------------------------------------------------------------
-# Trunk
-# ------------------------------------------------------------
+# ============================================================
+# RULE: TRUNK
+# ============================================================
 
 def check_trunk(evidence):
 
@@ -204,17 +243,20 @@ def check_trunk(evidence):
     return None
 
 
-# ------------------------------------------------------------
-# DHCP
-# ------------------------------------------------------------
+# ============================================================
+# RULE: DHCP
+# ============================================================
 
 def check_dhcp(evidence):
 
     text = evidence.lower()
 
     if (
-        "no pool for 192.168.10.0/24" in text
-        or "no pool exists for 192.168.10.0/24" in text
+        "no pool for 192.168.10.0/24"
+        in text
+        or
+        "no pool exists for 192.168.10.0/24"
+        in text
     ):
 
         return {
@@ -262,17 +304,21 @@ def check_dhcp(evidence):
     return None
 
 
-# ------------------------------------------------------------
-# DNS
-# ------------------------------------------------------------
+# ============================================================
+# RULE: DNS
+# ============================================================
 
 def check_dns(evidence):
 
     text = evidence.lower()
 
     if (
-        "dns request timed out" in text
-        or "nslookup" in text and "timeout" in text
+        "dns request timed out"
+        in text
+        or (
+            "nslookup" in text
+            and "timeout" in text
+        )
     ):
 
         return {
@@ -293,25 +339,28 @@ def check_dns(evidence):
             "rule": "DNS_SERVER",
             "status": "FAIL",
             "finding": (
-                "IP connectivity works but "
-                "DNS resolution fails"
+                "IP connectivity appears to work "
+                "while DNS resolution fails"
             )
         }
 
     return None
 
 
-# ------------------------------------------------------------
-# ACL
-# ------------------------------------------------------------
+# ============================================================
+# RULE: ACL
+# ============================================================
 
 def check_acl(evidence):
 
     text = evidence.lower()
 
     if (
-        "deny from 192.168.10.0/24" in text
-        and "192.168.30.0/24" in text
+        "deny from 192.168.10.0/24"
+        in text
+        and
+        "192.168.30.0/24"
+        in text
     ):
 
         return {
@@ -319,7 +368,8 @@ def check_acl(evidence):
             "status": "FAIL",
             "finding": (
                 "ACL denies traffic from "
-                "VLAN 10 to VLAN 30"
+                "192.168.10.0/24 to "
+                "192.168.30.0/24"
             )
         }
 
@@ -336,7 +386,10 @@ def check_acl(evidence):
             )
         }
 
-    if "tcp port 80" in text and "denies" in text:
+    if (
+        "tcp port 80" in text
+        and "denies" in text
+    ):
 
         return {
             "rule": "ACL_HTTP",
@@ -375,9 +428,9 @@ def check_acl(evidence):
     return None
 
 
-# ------------------------------------------------------------
-# NAT
-# ------------------------------------------------------------
+# ============================================================
+# RULE: NAT
+# ============================================================
 
 def check_nat(evidence):
 
@@ -398,7 +451,8 @@ def check_nat(evidence):
 
     if (
         "nat acl doesn't match" in text
-        or "nat acl does not match" in text
+        or
+        "nat acl does not match" in text
     ):
 
         return {
@@ -413,7 +467,9 @@ def check_nat(evidence):
     if (
         "nat acl permits vlan 10"
         in text
-        and "not 192.168.20.0/24" in text
+        and
+        "not 192.168.20.0/24"
+        in text
     ):
 
         return {
@@ -432,16 +488,16 @@ def check_nat(evidence):
             "status": "FAIL",
             "finding": (
                 "Static NAT translation "
-                "for SRV1 is missing"
+                "for the server is missing"
             )
         }
 
     return None
 
 
-# ------------------------------------------------------------
-# Interface
-# ------------------------------------------------------------
+# ============================================================
+# RULE: INTERFACE
+# ============================================================
 
 def check_interface(evidence):
 
@@ -471,9 +527,9 @@ def check_interface(evidence):
     return None
 
 
-# ------------------------------------------------------------
-# Duplicate IP
-# ------------------------------------------------------------
+# ============================================================
+# RULE: DUPLICATE IP
+# ============================================================
 
 def check_duplicate_ip(evidence):
 
@@ -482,7 +538,8 @@ def check_duplicate_ip(evidence):
     if (
         "same ip associated with different mac"
         in text
-        or "same ip associated with different macs"
+        or
+        "same ip associated with different macs"
         in text
     ):
 
@@ -499,16 +556,20 @@ def check_duplicate_ip(evidence):
 
 
 # ============================================================
-# CHECK ONE CASE
+# RUN ALL RULES
 # ============================================================
 
 def check_case(case):
 
-    evidence = case["Show Output / Evidence"]
+    evidence = str(
+        case.get(
+            "Show Output / Evidence",
+            ""
+        )
+    )
 
     findings = []
 
-    # Run every rule
     rules = [
         check_gateway,
         check_missing_route,
@@ -523,25 +584,38 @@ def check_case(case):
         check_duplicate_ip
     ]
 
-    # Gateway needs special arguments
-    gateway_result = check_gateway(evidence)
+    for rule in rules:
 
-    if gateway_result:
-        findings.append(gateway_result)
+        try:
 
-    # Other rules use evidence only
-    for rule in rules[1:]:
+            result = rule(
+                evidence
+            )
 
-        result = rule(evidence)
+        except Exception as error:
+
+            result = {
+                "rule": (
+                    f"{rule.__name__.upper()}_ERROR"
+                ),
+                "status": "ERROR",
+                "finding": (
+                    f"Rule could not be evaluated: "
+                    f"{error}"
+                )
+            }
 
         if result:
-            findings.append(result)
+
+            findings.append(
+                result
+            )
 
     return findings
 
 
 # ============================================================
-# LOAD CSV
+# LOAD CASES
 # ============================================================
 
 def load_cases():
@@ -553,114 +627,193 @@ def load_cases():
         newline=""
     ) as file:
 
-        reader = csv.DictReader(file)
+        reader = csv.DictReader(
+            file
+        )
 
         return list(reader)
+
+
+# ============================================================
+# SAVE RESULTS
+# ============================================================
 
 def save_results(results):
 
     with open(
         RESULT_FILE,
         "w",
-        encoding="utf-8",
+        encoding="utf-8-sig",
         newline=""
     ) as file:
 
-        writer = csv.writer(file)
+        writer = csv.writer(
+            file
+        )
 
-        writer.writerow([
-            "ID",
-            "Rule",
-            "Status",
-            "Finding"
-        ])
+        writer.writerow(
+            [
+                "ID",
+                "Rule",
+                "Status",
+                "Finding"
+            ]
+        )
 
         for result in results:
 
-            writer.writerow([
-                result["ID"],
-                result["rule"],
-                result["status"],
-                result["finding"]
-            ])
+            writer.writerow(
+                [
+                    result["ID"],
+                    result["rule"],
+                    result["status"],
+                    result["finding"]
+                ]
+            )
+
 
 # ============================================================
-# MAIN PROGRAM
+# MAIN
 # ============================================================
 
 def main():
 
-    print("=" * 70)
-    print("NETSAGE AI - CISCO NETWORK RULE CHECKER")
-    print("=" * 70)
+    if not os.path.exists(
+        CSV_FILE
+    ):
+
+        print(
+            f"ERROR: cases.csv not found:"
+        )
+
+        print(
+            CSV_FILE
+        )
+
+        raise SystemExit(1)
+
 
     cases = load_cases()
 
-    print(f"Total cases loaded: {len(cases)}")
+
     print()
+    print(
+        f"Total cases loaded: "
+        f"{len(cases)}"
+    )
+
+    print()
+
 
     all_results = []
 
-    for case in cases:
 
-        case_id = case["ID"]
-        expected = case["Expected Fault"]
+    for index, case in enumerate(
+        cases,
+        start=1
+    ):
 
-        print(f"CASE {case_id}")
-        print("-" * 70)
+        case_id = str(
+            case.get(
+                "ID",
+                ""
+            )
+        ).strip()
 
-        print(f"Expected Fault: {expected}")
 
-        findings = check_case(case)
+        print(
+            f"[{index}/{len(cases)}] "
+            f"Checking {case_id}"
+        )
+
+
+        findings = check_case(
+            case
+        )
+
 
         if findings:
 
             for finding in findings:
 
                 print(
-                    f"[{finding['status']}] "
+                    f"  [{finding['status']}] "
                     f"{finding['rule']}"
                 )
 
                 print(
-                    f"Finding: "
-                    f"{finding['finding']}"
+                    f"  {finding['finding']}"
                 )
 
-                all_results.append({
-                    "ID": case_id,
-                    "rule": finding["rule"],
-                    "status": finding["status"],
-                    "finding": finding["finding"]
-                })
+                all_results.append(
+                    {
+                        "ID": case_id,
+                        "rule": finding["rule"],
+                        "status": finding["status"],
+                        "finding": finding["finding"]
+                    }
+                )
 
         else:
 
             print(
-                "[INFO] No deterministic rule "
-                "matched this case."
+                "  [INFO] No deterministic "
+                "rule matched."
             )
 
-            all_results.append({
-                "ID": case_id,
-                "rule": "NONE",
-                "status": "INFO",
-                "finding": "No rule matched"
-            })
+            all_results.append(
+                {
+                    "ID": case_id,
+                    "rule": "NONE",
+                    "status": "INFO",
+                    "finding": (
+                        "No deterministic rule "
+                        "matched the supplied evidence"
+                    )
+                }
+            )
 
         print()
 
-    # Save all results
-    save_results(all_results)
+
+    # ========================================================
+    # SAVE
+    # ========================================================
+
+    save_results(
+        all_results
+    )
+
 
     print("=" * 70)
     print("CHECK COMPLETE")
-    print(f"Results saved to: {RESULT_FILE}")
     print("=" * 70)
+
+    print(
+        f"Cases processed: "
+        f"{len(cases)}"
+    )
+
+    print(
+        f"Checker records: "
+        f"{len(all_results)}"
+    )
+
+    print(
+        f"Results saved to:"
+    )
+
+    print(
+        RESULT_FILE
+    )
+
+    print("=" * 70)
+
 
 # ============================================================
 # START
 # ============================================================
 
 if __name__ == "__main__":
+
     main()
